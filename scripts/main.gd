@@ -21,6 +21,7 @@ var hands: Array[MeshInstance3D] = []
 var pointers: Array[MeshInstance3D] = []
 var reticle: MeshInstance3D
 var pose_geometry: Array[Node3D] = []
+var flight_hud = preload("res://scripts/flight_hud.gd").new()
 var hologram = preload("res://scripts/pose_hologram.gd").new()
 var paused := true
 var cooldown := 0.0
@@ -74,6 +75,8 @@ func _ready() -> void:
 	adapter.mark_requested.connect(_mark)
 	_build_cockpit()
 	_build_panel()
+	body.add_child(flight_hud)
+	flight_hud.setup(world.targets)
 	body.add_child(hologram)
 	hologram.setup(body,pose_geometry)
 	handles.enabled = bool(settings.get_value("experiment","grip_controls",true))
@@ -227,7 +230,8 @@ func _physics_process(dt: float) -> void:
 			cooldown = .15
 			log_event("fire", {"muzzle": str(muzzle)})
 	reticle.global_position = world.aim_point(muzzle,shield)
-	reticle.scale = Vector3.ONE * maxf(1.0,muzzle.origin.distance_to(reticle.global_position)*.015)
+	reticle.visible = false
+	flight_hud.update_hud(body.global_transform,adapter.camera.global_transform,world.targets,reticle.global_position,model.velocity.length())
 	var counts := Vector3i(world.target_hits,world.blocks,world.hits)
 	if counts != last_counts:
 		log_event("combat_result",{"targets":counts.x,"blocks":counts.y,"torso_hits":counts.z})

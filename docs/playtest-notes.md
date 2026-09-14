@@ -45,3 +45,21 @@ limits separately from unchanged actual equipment targets. A live actual-rig
 view remains available. The new interaction and posture need headset judgment.
 
 Research and uncertainty are in [UNDERDOGS notes](research/underdogs-controls.md).
+
+## Flight HUD and shared-body feedback
+
+User finds parked handles workable and the articulated/thrust hologram improved,
+but its body does not conform to the actual exterior rig. Next pose work should
+use one shared anatomical solution for exterior and miniature: acceleration
+response with hysteresis/deadbands, chest/head alignment constrained by actual
+arm reach, and a separately stabilized cockpit holographic view. This pass
+records that problem without introducing automatic cockpit motion.
+
+Added sparse 3D HUD geometry: cockpit-forward datum, colony-relative horizon and
+signed 10-degree pitch ladder, heading/pitch/speed, amber training-hostile contact
+diamonds with live range, and an actual-impact GUN reticle. Contact and gun
+symbols retain world depth, face the viewer, and maintain roughly constant
+angular size. Overlay materials intentionally show through geometry, with no
+occlusion inference, offscreen arrows, target lock, lead prediction or aim assist.
+The range has only training targets; TRN-H is their identification, not a new
+team/combat simulation. Heading zero is colony -Z, not magnetic north.

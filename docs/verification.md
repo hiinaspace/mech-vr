@@ -147,3 +147,13 @@ headset test. The private simple-controller profile does not verify Index
 squeeze behavior. Tests establish bounded transforms, fresh-input handoffs and
 no hologram writes into gameplay geometry, not comfort or physical realism.
 B/C control presets, physical cockpit gimbals and torque simulation are deferred.
+
+## Sparse flight HUD
+
+All 1,358 existing checks pass (`artifacts/hud-tests.log`). Rendered level and
+14-degree nose-up frames inspected (`artifacts/hud-level.png`, `hud-pitch.png`;
+`hud-render.log` reports HUD_RENDER_OK). Pitch marks move with colony attitude,
+while the forward datum stays cockpit-relative. Gun position uses the existing
+shared muzzle/shield/obstacle aim query. HUD is real 3D geometry, not a desktop
+CanvasLayer. No new native headset validation is claimed: check stereo symbol
+placement, size and readability with the normal launch. No shared service changes.

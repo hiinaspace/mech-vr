@@ -70,3 +70,10 @@ runtime tooling if available. A zero timing value can mean unsupported.
 
 Next action is this user test, then a bounded fix if needed. Do not proceed to
 B/C comparison presets before scale, bindings and the basic loop are checked.
+
+HUD follow-up: look around independently, then pitch/yaw the cockpit. The green
+forward datum stays cockpit-fixed; the horizon/ladder uses colony up and heading
+zero along colony -Z. Check the amber GUN mark against impacts while moving the
+right arm and obstructing it with the shield. Amber TRN-H diamonds identify the
+three training-hostile mechs and show current range. Symbols overlay geometry;
+they do not imply clear line of fire. Report stereo discomfort or clutter.

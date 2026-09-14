@@ -65,7 +65,7 @@ func setup() -> void:
 		_label("STOP MARKER", marker + Vector3(0, 3, 0), 0.035)
 	reset()
 
-func _add_target(center: Vector3, height: float, caption: String) -> void:
+func _add_target(center: Vector3, height: float, _caption: String) -> void:
 	var parts: Array[Dictionary] = []
 	var color := Color(0.3, 0.75, 0.7)
 	for part in [
@@ -80,8 +80,8 @@ func _add_target(center: Vector3, height: float, caption: String) -> void:
 		var mesh := _box(position_world, size, color)
 		_static_box(position_world, size)
 		parts.append({"transform": Transform3D(Basis.IDENTITY, position_world), "half": size * 0.5, "mesh": mesh})
-	targets.append({"parts": parts, "hits": 0, "flash": 0.0})
-	_label(caption, center + Vector3(0, height * 0.6, 0), 0.06)
+	targets.append({"hud_position": center + Vector3(0,height*.75,0), "parts": parts, "hits": 0, "flash": 0.0})
+	# Contact identity/range now lives in the 3D HUD.
 
 func tick(dt: float, body_transform: Transform3D, shield_world: Transform3D) -> void:
 	if dt <= 0:
