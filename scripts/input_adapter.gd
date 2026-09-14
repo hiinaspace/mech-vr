@@ -19,6 +19,7 @@ var _window_focused := true
 var _menu_held := false
 var _blocked_buttons: Dictionary = {}
 var initial_calibrated := false
+var _tracking_ready_logged := false
 
 func setup(body: Node3D) -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -130,6 +131,13 @@ func sample() -> Dictionary:
 		out.right_trigger = 1.0 if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) else 0.0
 		out.brake = Input.is_physical_key_pressed(KEY_SPACE)
 	mask_unavailable(out)
+	if xr_active and not _tracking_ready_logged and out.focused and out.valid_left and out.valid_right:
+		_tracking_ready_logged = true
+		var profiles: Array[String] = []
+		for controller in controllers:
+			var tracker := XRServer.get_tracker(controller.tracker) as XRControllerTracker
+			profiles.append(tracker.profile if tracker else "<missing>")
+		print("MECH_XR_TRACKING_READY focused=true head=%s left=%s right=%s profiles=%s move=%s yaw=%s vertical=%s triggers=%s/%s" % [out.head.origin, out.left.origin, out.right.origin, profiles, out.move, out.yaw, out.vertical, out.left_trigger, out.right_trigger])
 	return out
 
 func _head_tracked() -> bool:

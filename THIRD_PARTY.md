@@ -5,9 +5,12 @@ binary is required by this bounded cockpit adapter. This is a deliberate narrow
 adaptation of the plan: there is no floor locomotion, PlayerBody mover, teleport,
 hand rig, or general pointer framework to justify importing the complete addon.
 
-- `openxr_action_map.tres` is copied unmodified from `/home/s/code/pet-demo`
-  commit `67779d4d76297b603e680b418688026b3bff21de`. It includes the Valve Index
-  profile and preserves native `aim`, trigger, thumbstick and A/B bindings.
+- `openxr_action_map.tres` derives from `/home/s/code/pet-demo`
+  commit `67779d4d76297b603e680b418688026b3bff21de`. It retains only the Valve Index, Oculus Touch
+  (isolated QWERTY simulator) and Khronos simple-controller profiles. The native
+  Godot ResourceSaver retained their dependency closure and pruned other profile
+  bindings. Retained `aim`, trigger, thumbstick and A/B bindings are unchanged.
+  Simple controllers cannot exercise the full dual-stick/face-button loop.
 - The input/settings and isolated Monado runner patterns were inspected in that
   same permitted Godot reference; `scripts/run-monado-qwerty.sh` adapts its private
   runtime-directory runner and explicitly requests this application's XR mode.
