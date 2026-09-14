@@ -11,6 +11,7 @@ var camera: XRCamera3D
 var origin: XROrigin3D
 var controllers: Array[XRController3D] = []
 var xr_active := false
+var _mirror_size := Vector2i.ZERO
 var focused := true
 var selected_pose := 0
 var desktop_valid := [true, true]
@@ -65,6 +66,19 @@ func setup(body: Node3D) -> void:
 	XRServer.world_scale = 1.0
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	print("MECH_XR_INITIALIZED engine=%s runtime=%s render_target=%s world_scale=1" % [Engine.get_version_info().string, OS.get_environment("XR_RUNTIME_JSON"), _interface.get_render_target_size()])
+
+func _process(_dt: float) -> void:
+	if not xr_active:
+		return
+	# Window::_update_viewport_size skips XR, so its normal resize signal and
+	# screen attachment update do not run. Poll the window, not the XR viewport.
+	var window := get_window()
+	var size := DisplayServer.window_get_size(window.get_window_id())
+	if size.x <= 0 or size.y <= 0 or size == _mirror_size:
+		return
+	RenderingServer.viewport_attach_to_screen(window.get_viewport_rid(), Rect2(Vector2.ZERO, Vector2(size)), window.get_window_id())
+	_mirror_size = size
+	print("MECH_XR_MIRROR_RESIZED window=%s eye_target=%s" % [size, _interface.get_render_target_size()])
 
 func _reset_desktop_poses() -> void:
 	camera.transform = Transform3D.IDENTITY

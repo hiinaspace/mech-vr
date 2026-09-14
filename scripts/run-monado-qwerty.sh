@@ -53,7 +53,7 @@ fi
 echo "Isolated Monado QWERTY runtime: $runtime_dir"
 echo "Monado log: $service_log"
 if [[ ${1:-} == "--smoke" ]]; then
-  godot4 --path "$repo_dir" --xr-mode on --audio-driver Dummy --quit-after 180 -- --xr
+  godot4 --path "$repo_dir" --xr-mode on --audio-driver Dummy --quit-after "${2:-180}" -- --xr
   exit $?
 fi
 godot4 --path "$repo_dir" --xr-mode on -- --xr

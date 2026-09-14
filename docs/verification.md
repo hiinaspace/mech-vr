@@ -101,3 +101,19 @@ missed/reprojected frames, or the user's combined-loop preference. QWERTY's
 Godot viewport CPU/GPU times and frame intervals only, not physical latency.
 The first actual user test is `docs/m0a-headset-test.md`; B/C and later gameplay
 remain deferred.
+
+## Mirror resize follow-up
+
+The XR mirror now updates its screen attachment when the desktop window size
+changes. Godot's XR Window path skips ordinary viewport resizing, which left
+this rectangle stale under niri tiling. The adapter polls the actual window
+size and only updates the attachment on a change; headset eye resolution stays
+runtime-controlled. The stock single-eye mirror preserves aspect with cropping.
+
+Verified with the private QWERTY runtime under niri: destination sizes changed
+1905×2123 → 1350×2123 → 2400×2123 while the eye target stayed 320×240.
+`artifacts/mirror-resize-smoke.log` retains the changes; the compositor window
+capture `artifacts/mirror-900.png` shows the mirror filling the resized client
+area. QWERTY's tiny eye target makes that test image pixelated; it is not a
+recording-quality or real-headset performance test. All 549 existing checks pass
+(`artifacts/mirror-tests.log`). The known engine shutdown messages remain.
