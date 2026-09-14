@@ -17,9 +17,11 @@ context, prefix rendered commands with `DISPLAY=:0 WAYLAND_DISPLAY=wayland-1`.
 A normal graphical terminal usually already has them. Never point the private
 smoke at the user's runtime socket or restart their VR services.
 
-**Next gate: [short seated headset test](docs/m0a-headset-test.md).**
+**Next check: [dashboard and pose-miniature follow-up](docs/m0a-headset-test.md).**
+Initial user feedback and the reattachment tradeoff are in
+[playtest notes](docs/playtest-notes.md).
 Read [verification and limits](docs/verification.md) for actual evidence. No
-physical headset validation or A/B/C preference result is claimed.
+complete physical timing/binding validation or A/B/C preference result is claimed.
 
 Desktop: WASD translation, Q/E descend/ascend, arrows yaw and vertical/pitch,
 Tab switches the right-stick Y function, Shift boost, Space brake, left mouse

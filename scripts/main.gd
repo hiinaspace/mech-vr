@@ -16,6 +16,8 @@ var segments: Array[MeshInstance3D] = []
 var hands: Array[MeshInstance3D] = []
 var pointers: Array[MeshInstance3D] = []
 var reticle: MeshInstance3D
+var pose_geometry: Array[Node3D] = []
+var hologram = preload("res://scripts/pose_hologram.gd").new()
 var paused := true
 var cooldown := 0.0
 var elapsed := 0.0
@@ -68,6 +70,8 @@ func _ready() -> void:
 	adapter.mark_requested.connect(_mark)
 	_build_cockpit()
 	_build_panel()
+	body.add_child(hologram)
+	hologram.setup(body,pose_geometry)
 	world.cadence = float(settings.get_value("range", "cadence", 2.5))
 	slow_turn = bool(settings.get_value("control","slow_turn",false))
 	snap = bool(settings.get_value("control","snap_yaw",false))
@@ -101,9 +105,9 @@ func _build_cockpit() -> void:
 		box(body, Vector3(.06,.06,1.3), Vector3(side*.65,-.45,-.4), Color("647b8c"))
 		box(body, Vector3(.05,1.2,.05), Vector3(side*.65,.05,-1), Color("647b8c"))
 		box(body, Vector3(.12,.08,.35), Vector3(side*.35,-.35,-.3), Color("a7bac8"))
-	box(body, Vector3(1.35,.05,.05), Vector3(0,.65,-1), Color("647b8c"))
+	pose_geometry.append(box(body, Vector3(1.35,.05,.05), Vector3(0,.65,-1), Color("647b8c")))
 	# Torso sits below the human canopy, never wraps/occludes the camera.
-	box(body, Vector3(6,16,3), Vector3(0,-9.35,1), Color("28394b"))
+	pose_geometry.append(box(body, Vector3(6,16,3), Vector3(0,-9.35,1), Color("28394b")))
 	for i in range(2):
 		var arm := Node3D.new()
 		body.add_child(arm)
@@ -118,11 +122,14 @@ func _build_cockpit() -> void:
 		segments.append(box(body, Vector3(.5,.5,1), Vector3.ZERO, Color("768693")))
 		hands.append(box(body, Vector3(.06,.06,.14), Vector3.ZERO, Color("fcce74") if i else Color("71d6ee")))
 		pointers.append(box(body, Vector3(.005,.005,1), Vector3.ZERO, Color("6dffd9")))
+	pose_geometry.append_array(arms)
+	pose_geometry.append_array(segments)
 	reticle = box(self, Vector3(.15,.15,.15), Vector3(0,0,-50), Color("ffef78"))
 
 func _build_panel() -> void:
 	body.add_child(panel)
-	panel.position = Vector3(0,-.35,-.85)
+	panel.position = Vector3(0,-.65,-.85)
+	panel.rotation_degrees.x = -45
 	viewport.size = Vector2i(800,600)
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	add_child(viewport)
@@ -181,6 +188,7 @@ func _physics_process(dt: float) -> void:
 		var elbow := (shoulder+end)*.5 + Vector3(-1.5 if i == 0 else 1.5,-1.5,0)
 		_segment(segments[i*2],shoulder,elbow,.6)
 		_segment(segments[i*2+1],elbow,end,.5)
+	hologram.sync()
 	reset_blend = maxf(0,reset_blend-dt)
 	var muzzle := arms[1].global_transform * Transform3D(Basis.IDENTITY,Vector3(0,0,-2.7))
 	var shield := arms[0].global_transform
@@ -337,7 +345,7 @@ func replay_sample(t: float) -> Dictionary:
 	if t > 3: left.origin.x += .6
 	if t > 4: right.basis = Basis.from_euler(Vector3(0,.12*sin(t),0))
 	if t > 5 and t < 6.1:
-		right.basis = Basis.looking_at(Vector3(0,-.35,-.85)-right.origin,Vector3.UP)
+		right.basis = Basis.looking_at(panel.position-right.origin,Vector3.UP)
 	var s := {"head":head,"left":left,"right":right,"valid_left":true,"valid_right":true,"focused":true,"move":Vector3.RIGHT if t < 1 else Vector3.ZERO,"yaw":0.0,"vertical":0.0,"mode_toggle":false,"ui_left":false,"ui_right":t > 5 and t < 5.1 or t > 6 and t < 6.1,"left_trigger":0.0,"right_trigger":1.0 if t > 2 else 0.0,"brake":t > 1 and t < 2}
 	if t > 5.25 and t < 5.4 or t > 6.5 and t < 6.65:
 		s.right_trigger = 0.0

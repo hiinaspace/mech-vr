@@ -1,4 +1,7 @@
-# M0a first seated headset gate — not yet run
+# M0a seated headset test
+
+Initial user feedback is positive; see [playtest notes](playtest-notes.md).
+The lowered dashboard and pose miniature are ready for a follow-up look.
 
 Use sayu's normal Beyond/Index VR setup. No shared service restart is part of
 this handoff. Sit facing forward with controllers in a comfortable neutral
