@@ -8,7 +8,7 @@ finite incoming bolts, explicit arm/UI handoff, and a live cadence MFD.
 # From this checkout, using the installed Godot engine:
 ./scripts/run.sh                 # desktop, starts paused
 ./scripts/run.sh --xr            # native OpenXR, starts paused
-./scripts/test.sh                # 1,358 deterministic checks
+./scripts/test.sh                # 1,397 deterministic checks
 ./scripts/run-monado-qwerty.sh --smoke  # private simulated runtime
 ```
 
@@ -25,8 +25,9 @@ complete physical timing/binding validation or A/B/C preference result is claime
 
 Default control: hold grip near a cockpit handle to grab it; release to park
 the handle and robot arm while reaching for UI. The live MFD compares FREE and
-CALIBRATED ANGLE regrabs, the previous B-button mode, and flight/actual holograms.
-See [UNDERDOGS research](docs/research/underdogs-controls.md) for design references.
+CALIBRATED ANGLE regrabs, the previous B-button mode, and THRUST/UPRIGHT shared body posture.
+The exterior and hologram share one rig; [space-body posture notes](docs/research/space-body-posture.md)
+cover the Echo/Space Junkies references. See [UNDERDOGS research](docs/research/underdogs-controls.md) for design references.
 
 Desktop: hold G/H for left/right grip. WASD translation, Q/E descend/ascend, arrows yaw and vertical/pitch,
 Tab switches the right-stick Y function, Shift boost, Space brake, left mouse

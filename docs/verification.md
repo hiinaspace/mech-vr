@@ -157,3 +157,29 @@ while the forward datum stays cockpit-relative. Gun position uses the existing
 shared muzzle/shield/obstacle aim query. HUD is real 3D geometry, not a desktop
 CanvasLayer. No new native headset validation is claimed: check stereo symbol
 placement, size and readability with the normal launch. No shared service changes.
+
+## Shared exterior thrust posture
+
+- All 1,397 checks pass (`artifacts/shared-posture-tests.log`): prior suites
+  1,358 plus 39 aggregate shared-pose checks at 30/90 Hz. These verify fixed arm
+  lengths and exact equipment connections at legal workspace extremes,
+  hologram mesh/hierarchy/transform parity, no procedural movement of camera or
+  equipment, thrust decomposition, brief-command rejection, brake retention,
+  pause/coast exhaust suppression, idle settling and cross-rate agreement.
+- Added actual main-loop hit/miss checks at the animated chest and the obsolete
+  upright body origin. The chest hurtbox follows visible geometry; the separate
+  navigation hull is deliberately unchanged. Found/fixed a 2 cm IK endpoint gap
+  for coincident shoulder/wrist positions.
+- Rendered idle, thrust, brake, strafe and cockpit views retained in
+  `artifacts/shared-*.png`; thrust/cockpit inspected. Log:
+  `artifacts/shared-posture-render.log` reports SHARED_POSTURE_RENDER_OK.
+- Rendered combined replay passes all six checks, including shield blocks and
+  independent head motion (`artifacts/shared-posture-replay.log`).
+- Isolated QWERTY OpenXR startup, seat calibration, focus and both controllers
+  pass, exit 0 (`artifacts/shared-posture-xr.log`). Known stock engine teardown
+  warnings remain; no shared service restart. This does not establish physical
+  Index inputs, headset performance or visual comfort.
+
+The new body proportions, shoulder travel, timing, hologram framing and shield
+coverage during posture changes need headset judgment. No full limb collision,
+self-contact solver, camera/robot-head coupling or physical thrust/torque claim.

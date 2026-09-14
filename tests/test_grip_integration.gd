@@ -47,7 +47,7 @@ func run() -> void:
 	scene.handles.enabled = true
 	scene.handles.set_mode("free")
 	scene.handles.reset()
-	scene.hologram.flight_enabled = true
+	scene.robot.posture_enabled = true
 	await physics_frame
 	scene.paused = false
 	input.current.left_grip = 0.0
@@ -108,18 +108,18 @@ func run() -> void:
 	var body_before: Transform3D = scene.body.transform
 	var gun_before: Transform3D = scene.arms[1].global_transform
 	var shield_before: Transform3D = scene.arms[0].global_transform
-	for _i in range(90):
-		scene.hologram.update_flight(1.0/90.0,Vector3(0,0,-20),Vector3(0,0,-12))
+	for _i in range(240):
+		scene.robot.update_pose(1.0/90.0,Vector3(0,0,-20),Vector3(0,0,-12),scene.arms,Basis.IDENTITY)
 		scene.hologram.sync()
-	check(scene.hologram.flight.body_basis.y.dot(Vector3.FORWARD)>.8,"Hologram adopts forward spine flight pose")
-	check(scene.hologram.flames[0].visible or scene.hologram.flames[2].visible,"Acceleration produces visible exhaust")
+	check(scene.robot.flight.body_basis.y.dot(Vector3.FORWARD)>.8,"Hologram adopts forward spine flight pose")
+	check(scene.robot.flames[0].visible or scene.robot.flames[2].visible,"Acceleration produces visible exhaust")
 	check(scene.body.transform.is_equal_approx(body_before),"Visual pose never steers cockpit")
 	check(scene.arms[1].global_transform.is_equal_approx(gun_before) and scene.arms[0].global_transform.is_equal_approx(shield_before),"Visual pose never changes actual muzzle/shield")
-	scene.hologram.update_flight(1.0/90.0,Vector3(0,0,-20),Vector3.ZERO)
+	scene.robot.update_pose(1.0/90.0,Vector3(0,0,-20),Vector3.ZERO,scene.arms,Basis.IDENTITY)
 	scene.hologram.sync()
-	check(not scene.hologram.flames[0].visible and not scene.hologram.flames[2].visible,"Coasting has no acceleration exhaust")
+	check(not scene.robot.flames[0].visible and not scene.robot.flames[2].visible,"Coasting has no acceleration exhaust")
 	click("left",5)
-	check(not scene.hologram.flight_enabled,"Live HUD can restore actual-rig hologram")
+	check(not scene.robot.posture_enabled,"Live HUD can select upright shared body posture")
 	click("left",4)
 	check(not scene.handles.enabled,"Live HUD can restore legacy B-toggle control")
 	scene.queue_free()

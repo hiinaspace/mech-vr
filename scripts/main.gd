@@ -16,12 +16,11 @@ var display := Label.new()
 var menu_labels: Array[Label] = []
 var viewport := SubViewport.new()
 var arms: Array[Node3D] = []
-var segments: Array[MeshInstance3D] = []
 var hands: Array[MeshInstance3D] = []
 var pointers: Array[MeshInstance3D] = []
 var reticle: MeshInstance3D
-var pose_geometry: Array[Node3D] = []
 var flight_hud = preload("res://scripts/flight_hud.gd").new()
+var robot = preload("res://scripts/robot_rig.gd").new()
 var hologram = preload("res://scripts/pose_hologram.gd").new()
 var paused := true
 var cooldown := 0.0
@@ -78,10 +77,12 @@ func _ready() -> void:
 	body.add_child(flight_hud)
 	flight_hud.setup(world.targets)
 	body.add_child(hologram)
-	hologram.setup(body,pose_geometry)
+	body.add_child(robot)
+	robot.setup()
+	hologram.setup(body,robot,arms)
 	handles.enabled = bool(settings.get_value("experiment","grip_controls",true))
 	handles.set_mode(str(settings.get_value("experiment","regrab_mode","free")))
-	hologram.flight_enabled = bool(settings.get_value("experiment","flight_preview",true))
+	robot.posture_enabled = bool(settings.get_value("experiment","flight_preview",true))
 	world.cadence = float(settings.get_value("range", "cadence", 2.5))
 	slow_turn = bool(settings.get_value("control","slow_turn",false))
 	snap = bool(settings.get_value("control","snap_yaw",false))
@@ -116,9 +117,8 @@ func _build_cockpit() -> void:
 		box(body, Vector3(.06,.06,1.3), Vector3(side*.65,-.45,-.4), Color("647b8c"))
 		box(body, Vector3(.05,1.2,.05), Vector3(side*.65,.05,-1), Color("647b8c"))
 		box(body, Vector3(.12,.08,.35), Vector3(side*.35,-.35,-.3), Color("a7bac8"))
-	pose_geometry.append(box(body, Vector3(1.35,.05,.05), Vector3(0,.65,-1), Color("647b8c")))
-	# Torso sits below the human canopy, never wraps/occludes the camera.
-	pose_geometry.append(box(body, Vector3(6,16,3), Vector3(0,-9.35,1), Color("28394b")))
+	box(body, Vector3(1.35,.05,.05), Vector3(0,.65,-1), Color("647b8c"))
+
 	for i in range(2):
 		var arm := Node3D.new()
 		body.add_child(arm)
@@ -129,8 +129,7 @@ func _build_cockpit() -> void:
 		else:
 			box(arm, Vector3(.6,.8,2), Vector3(0,0,-.7), Color("b3a387"))
 			box(arm, Vector3(.22,.22,1.2), Vector3(0,0,-2.1), Color("dfbd6c"))
-		segments.append(box(body, Vector3(.6,.6,1), Vector3.ZERO, Color("526475")))
-		segments.append(box(body, Vector3(.5,.5,1), Vector3.ZERO, Color("768693")))
+
 		hands.append(box(body, Vector3(.045,.045,.10), Vector3.ZERO, Color("bceefa")))
 		var hand_material := hands[i].material_override as StandardMaterial3D
 		hand_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -142,8 +141,6 @@ func _build_cockpit() -> void:
 		box(handle,Vector3(.095,.025,.10),Vector3(0,.055,-.025),Color("627582"))
 		box(handle,Vector3(.015,.015,.08),Vector3(0,.075,-.025),Color("f0fff3"))
 		pointers.append(box(body, Vector3(.005,.005,1), Vector3.ZERO, Color("6dffd9")))
-	pose_geometry.append_array(arms)
-	pose_geometry.append_array(segments)
 	reticle = box(self, Vector3(.15,.15,.15), Vector3(0,0,-50), Color("ffef78"))
 
 func _build_panel() -> void:
@@ -212,19 +209,14 @@ func _physics_process(dt: float) -> void:
 		var nearby: bool = hand_pose.origin.distance_to(handles.handles[i].origin) <= handles.CAPTURE_RADIUS
 		var grip_material: StandardMaterial3D = handle_visuals[i].get_child(0).material_override
 		grip_material.albedo_color = Color("83ffac") if hand_live[i] and nearby and not handles.grabbed[i] else (Color("ffd36b") if i else Color("3eaabd"))
-		var shoulder := Vector3(-3.5 if i == 0 else 3.5,-2,1)
-		var end := arms[i].position
-		var elbow := (shoulder+end)*.5 + Vector3(-1.5 if i == 0 else 1.5,-1.5,0)
-		_segment(segments[i*2],shoulder,elbow,.6)
-		_segment(segments[i*2+1],elbow,end,.5)
-	hologram.update_flight(dt,body.basis.inverse()*model.velocity,body.basis.inverse()*commanded_acceleration,result.paused)
+	robot.update_pose(dt,body.basis.inverse()*model.velocity,body.basis.inverse()*commanded_acceleration,arms,sample.head.basis,result.paused)
 	hologram.sync()
 	reset_blend = maxf(0,reset_blend-dt)
 	var muzzle := arms[1].global_transform * Transform3D(Basis.IDENTITY,Vector3(0,0,-2.7))
 	var shield := arms[0].global_transform
 	cooldown = maxf(0,cooldown-dt)
 	if not result.paused:
-		world.tick(dt,body.global_transform,shield)
+		world.tick(dt,robot.chest.global_transform,shield,Vector3(2.4,2.1,1.25))
 		if result.fire and cooldown <= 0:
 			world.fire(muzzle,shield)
 			cooldown = .15
@@ -243,7 +235,7 @@ func _physics_process(dt: float) -> void:
 	_panel_input(sample,result)
 	_update_display(result,muzzle)
 	if frames % 9 == 0:
-		var row := {"t":elapsed,"position":str(body.position),"velocity":str(model.velocity),"head":str(sample.head),"left":str(sample.left),"right":str(sample.right),"owners":model.owners.duplicate(),"actual":str(model.arm_actual),"desired":str(model.arm_targets),"boost":model.boost,"brake":sample.brake,"handles":str(handles.handles),"grabbed":handles.grabbed.duplicate(),"regrab_mode":handles.mode,"grip_controls":handles.enabled,"commanded_acceleration":str(commanded_acceleration),"flight_preview":hologram.flight_enabled,"hits":world.hits,"blocks":world.blocks,"target_hits":world.target_hits}
+		var row := {"t":elapsed,"position":str(body.position),"velocity":str(model.velocity),"head":str(sample.head),"left":str(sample.left),"right":str(sample.right),"owners":model.owners.duplicate(),"actual":str(model.arm_actual),"desired":str(model.arm_targets),"boost":model.boost,"brake":sample.brake,"handles":str(handles.handles),"grabbed":handles.grabbed.duplicate(),"regrab_mode":handles.mode,"grip_controls":handles.enabled,"commanded_acceleration":str(commanded_acceleration),"flight_preview":robot.posture_enabled,"posture_mode":robot.flight.mode,"chest":str(robot.chest.global_transform),"shoulder_slide":robot.rail_extension.duplicate(),"hits":world.hits,"blocks":world.blocks,"target_hits":world.target_hits}
 		ring.append(row)
 		if ring.size() > 300: ring.pop_front()
 		if replay: trace.store_line(JSON.stringify(row))
@@ -252,12 +244,6 @@ func _physics_process(dt: float) -> void:
 		print("M0A_REPLAY_COMPLETE checks=",replay_checks)
 		trace.flush()
 		get_tree().quit(0 if replay_checks.size() >= 4 and not false in replay_checks.values() else 1)
-
-func _segment(mesh: MeshInstance3D, a: Vector3, b: Vector3, width: float) -> void:
-	mesh.position = (a+b)*.5
-	mesh.scale = Vector3(1,1,a.distance_to(b))
-	if a.distance_to(b) > .001:
-		mesh.look_at(body.to_global(b),body.basis.y)
 
 func panel_hit(pose: Transform3D) -> Vector2:
 	var local := panel.transform.affine_inverse() * pose
@@ -319,9 +305,9 @@ func _panel_input(sample: Dictionary, result: Dictionary) -> void:
 				settings.set_value("experiment","grip_controls",handles.enabled)
 				log_event("grip_controls",{"enabled":handles.enabled})
 			else:
-				hologram.flight_enabled = not hologram.flight_enabled
-				settings.set_value("experiment","flight_preview",hologram.flight_enabled)
-				log_event("flight_preview",{"enabled":hologram.flight_enabled})
+				robot.posture_enabled = not robot.posture_enabled
+				settings.set_value("experiment","flight_preview",robot.posture_enabled)
+				log_event("flight_preview",{"enabled":robot.posture_enabled})
 			if not replay: settings.save("user://m0a.cfg")
 
 func _apply_turn_settings() -> void:
@@ -338,7 +324,7 @@ func _update_display(result: Dictionary, muzzle: Transform3D) -> void:
 		rows[2] = "EMITTER %.1fs  /  CLICK" % world.cadence
 		rows[3] = "REGRAB: %s" % ("FREE" if handles.mode == "free" else "CALIBRATED ANGLE")
 		rows[4] = "CONTROL: %s" % ("HOLD GRIP" if handles.enabled else "B BUTTON TOGGLE")
-		rows[5] = "HOLOGRAM: %s" % ("FLIGHT PREVIEW" if hologram.flight_enabled else "ACTUAL RIG")
+		rows[5] = "BODY POSTURE: %s" % ("THRUST" if robot.posture_enabled else "UPRIGHT")
 	for row in range(6):
 		menu_labels[row].visible = paused or row >= 2
 		menu_labels[row].text = rows[row]
@@ -367,6 +353,7 @@ func _reset() -> void:
 	reset_from = model.arm_actual.duplicate()
 	adapter.recenter()
 	model.reset()
+	robot.reset()
 	handles.reset()
 	body.transform = Transform3D.IDENTITY
 	world.reset()

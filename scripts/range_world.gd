@@ -83,7 +83,7 @@ func _add_target(center: Vector3, height: float, _caption: String) -> void:
 	targets.append({"hud_position": center + Vector3(0,height*.75,0), "parts": parts, "hits": 0, "flash": 0.0})
 	# Contact identity/range now lives in the 3D HUD.
 
-func tick(dt: float, body_transform: Transform3D, shield_world: Transform3D) -> void:
+func tick(dt: float, body_transform: Transform3D, shield_world: Transform3D, torso_half := TORSO_HALF) -> void:
 	if dt <= 0:
 		return
 	var event_offset := _until_shot
@@ -111,7 +111,7 @@ func tick(dt: float, body_transform: Transform3D, shield_world: Transform3D) -> 
 		var old: Vector3 = bolt.position
 		var next: Vector3 = old + bolt.velocity * movement_dt
 		var shield_fraction := segment_box(old, next, shield_world, SHIELD_HALF)
-		var body_fraction := segment_box(old, next, body_transform, TORSO_HALF)
+		var body_fraction := segment_box(old, next, body_transform, torso_half)
 		if shield_fraction >= 0 and (body_fraction < 0 or shield_fraction <= body_fraction):
 			blocks += 1
 			last_impact = old.lerp(next, shield_fraction)

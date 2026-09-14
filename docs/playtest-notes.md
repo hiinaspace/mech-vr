@@ -63,3 +63,40 @@ angular size. Overlay materials intentionally show through geometry, with no
 occlusion inference, offscreen arrows, target lock, lead prediction or aim assist.
 The range has only training targets; TRN-H is their identification, not a new
 team/combat simulation. Heading zero is colony -Z, not magnetic north.
+
+## Shared thrust posture pass
+
+User reports the HUD works as intended and authorizes the thrust/body pass.
+The exterior and hologram now share the same rig; the miniature copies geometry,
+transforms and visibility rather than independently estimating a pose. It frames
+the full current rig above its base. Gun and shield remain the actual control
+model endpoints; shoulders/chest accommodate them. Six-metre upper/lower arm
+segments use a visible sliding clavicle at workspace extremes, rather than
+stretching bones or moving a parked weapon. This is a mechanical heuristic,
+not a complete anatomical constraint/collision solver.
+
+Posture remembers direction: thrust enters above 2 m/s² and exits below 0.7;
+a new direction must differ by 10° and persist 0.22 s. Lean is bounded to 75°,
+with a 65°/s maximum and eased settling. Braking against current velocity uses
+retro thrust while retaining travel posture. Idle waits 0.45 s before settling;
+coast retains a travel pose without exhaust. Low-speed motion uses separate
+1.2/0.5 m/s entry/exit thresholds. These values are authored starting points.
+
+Chest yaw blends useful hand directions with a smaller head contribution,
+ignores hands behind the neck, and downweights close hands. It is limited to
+about ±26° with a 6° deadband and 25°/s response. Pelvis/legs follow more slowly.
+The exterior head follows a bounded, smoothed look direction around a fixed neck
+anchor; the actual cockpit camera remains a stabilized holographic projection
+in the explicit pilot-controlled frame. The user's head tracking is not filtered.
+
+The incoming-shot chest hurtbox follows the visible chest. Gun/shield collision
+and aim remain at the actual displayed equipment. The movement collision hull
+is still the simplified cockpit-relative navigation hull; there is no per-limb
+wall collision, self-collision, torque simulation or physical thruster allocation.
+BODY POSTURE: THRUST / UPRIGHT now compares the shared body behavior, replacing
+the previous independent miniature preview/actual toggle. Reset clears pose memory.
+
+[Lone Echo / Space Junkies references](research/space-body-posture.md) support
+prioritizing endpoints, inferred chest facing and delayed lower-body response;
+they do not supply our thrust thresholds or cockpit model. The next user check
+is sustained boost/brake/strafe while holding the shield and rifle independently.

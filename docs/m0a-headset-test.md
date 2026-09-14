@@ -42,13 +42,18 @@ XR_RUNTIME_JSON=/run/current-system/sw/share/openxr/1/openxr_monado.json \
    alignment and a real trigger release. Switching modes parks both handles.
    The CONTROL row restores the previous B-button arm/UI toggle if desired.
    Detached hands cannot command their sticks; left A brake remains available.
-5. **Flight puppet:** use the HOLOGRAM row to compare FLIGHT PREVIEW with the
-   original ACTUAL RIG. Accelerate, boost, strafe and brake: the preview spine
-   leans toward commanded acceleration, with backpack exhaust plus residual
-   vernier exhaust. During coast, jets extinguish while the body can retain a
-   velocity-aligned pose. Watch shoulder/elbow reach and readability. Red wrist
-   markers indicate targets beyond the preview arm's reach. This only animates
-   the miniature: cockpit, real weapons, shield and collision stay unchanged.
+5. **Shared flight body:** compare BODY POSTURE: THRUST / UPRIGHT. Both the
+   exterior and miniature now use the same rig. Hold forward boost long enough
+   to settle, then brake: the body retains its flight direction while reverse
+   jets arrest motion. Try brief alternating strafe taps, sustained strafe, and
+   returning to idle. Look for excessive body flapping or slow recovery.
+   Park the shield near your face and aim the rifle away from it: shoulders and
+   chest should accommodate those endpoints, with pelvis/legs following more
+   slowly. Check the miniature matches the visible gun/shield/arms, including
+   moving or folded arms. At extreme reach, a visible shoulder rail slides.
+   The exterior head follows your look with bounded smoothing; your cockpit
+   view remains pilot-controlled. The incoming-fire chest hitbox now follows
+   the visible chest, so recheck shielding during posture changes.
 6. **Pause and report:** right stick click pauses. Record any wrong binding,
    uncomfortable scale/reach, unreadable text, unintended fire/thrust, arm
    snap, or frame hitch. A keyboard helper can press F8 to save the preceding
