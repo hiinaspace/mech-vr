@@ -113,8 +113,9 @@ func sample() -> Dictionary:
 		out.left_trigger = controllers[0].get_float("trigger")
 		out.right_trigger = controllers[1].get_float("trigger")
 		out.brake = controllers[0].is_button_pressed("ax_button")
-		var menu: bool = (out.valid_left and controllers[0].is_button_pressed("menu_button")) or (out.valid_right and (controllers[1].is_button_pressed("menu_button") or controllers[1].is_button_pressed("primary_click")))
-		menu = _fresh_button("menu", menu, out.focused)
+		var left_menu := _fresh_button("left_menu", controllers[0].is_button_pressed("menu_button"), out.focused and out.valid_left)
+		var right_menu := _fresh_button("right_menu", controllers[1].is_button_pressed("menu_button") or controllers[1].is_button_pressed("primary_click"), out.focused and out.valid_right)
+		var menu := left_menu or right_menu
 		if menu and not _menu_held:
 			pause_requested.emit()
 		_menu_held = menu
