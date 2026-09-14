@@ -17,6 +17,8 @@ var desktop_valid := [true, true]
 var _interface: XRInterface
 var _window_focused := true
 var _menu_held := false
+var _blocked_buttons: Dictionary = {}
+var initial_calibrated := false
 
 func setup(body: Node3D) -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -81,12 +83,17 @@ func recenter() -> void:
 	print("MECH_XR_RECENTER head=%s origin=%s" % [head_pose, origin.transform])
 
 func sample() -> Dictionary:
+	if xr_active and not initial_calibrated and focused and _head_tracked():
+		# Main starts paused. This one-time placement makes its seated menu reachable.
+		recenter()
+		initial_calibrated = true
+		print("MECH_XR_STARTUP_SEATED_CALIBRATION")
 	var out := {
 		"head": origin.transform * camera.transform,
 		"left": origin.transform * controllers[0].transform,
 		"right": origin.transform * controllers[1].transform,
 		"valid_left": desktop_valid[0], "valid_right": desktop_valid[1],
-		"focused": focused if xr_active else _window_focused,
+		"focused": (focused and _head_tracked()) if xr_active else _window_focused,
 		"move": Vector3.ZERO, "yaw": 0.0, "vertical": 0.0,
 		"mode_toggle": false, "ui_left": false, "ui_right": false,
 		"left_trigger": 0.0, "right_trigger": 0.0, "brake": false,
@@ -106,7 +113,8 @@ func sample() -> Dictionary:
 		out.left_trigger = controllers[0].get_float("trigger")
 		out.right_trigger = controllers[1].get_float("trigger")
 		out.brake = controllers[0].is_button_pressed("ax_button")
-		var menu := controllers[0].is_button_pressed("menu_button") or controllers[1].is_button_pressed("menu_button") or controllers[1].is_button_pressed("primary_click")
+		var menu: bool = (out.valid_left and controllers[0].is_button_pressed("menu_button")) or (out.valid_right and (controllers[1].is_button_pressed("menu_button") or controllers[1].is_button_pressed("primary_click")))
+		menu = _fresh_button("menu", menu, out.focused)
 		if menu and not _menu_held:
 			pause_requested.emit()
 		_menu_held = menu
@@ -120,7 +128,38 @@ func sample() -> Dictionary:
 		out.left_trigger = 1.0 if Input.is_physical_key_pressed(KEY_SHIFT) else 0.0
 		out.right_trigger = 1.0 if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) else 0.0
 		out.brake = Input.is_physical_key_pressed(KEY_SPACE)
+	mask_unavailable(out)
 	return out
+
+func _head_tracked() -> bool:
+	var head_tracker := XRServer.get_tracker("head") as XRPositionalTracker
+	var pose: XRPose = head_tracker.get_pose("default") if head_tracker else null
+	return pose != null and pose.has_tracking_data
+
+func mask_unavailable(out: Dictionary) -> void:
+	# Apply equally to hardware and desktop loss simulation. Never consume stale
+	# stick/action values after a pose or session becomes unavailable.
+	var left_live: bool = out.focused and out.valid_left
+	var right_live: bool = out.focused and out.valid_right
+	out.ui_left = _fresh_button("ui_left", out.ui_left, left_live)
+	out.ui_right = _fresh_button("ui_right", out.ui_right, right_live)
+	out.mode_toggle = _fresh_button("mode_toggle", out.mode_toggle, right_live)
+	if not left_live:
+		out.move = Vector3.ZERO
+		out.left_trigger = 0.0
+		out.brake = false
+	if not right_live:
+		out.yaw = 0.0
+		out.vertical = 0.0
+		out.right_trigger = 0.0
+
+func _fresh_button(action: String, pressed: bool, available: bool) -> bool:
+	if not available:
+		_blocked_buttons[action] = true
+		return false
+	if not pressed:
+		_blocked_buttons[action] = false
+	return pressed and not _blocked_buttons.get(action, false)
 
 func _axis(negative: Key, positive: Key) -> float:
 	return float(Input.is_physical_key_pressed(positive)) - float(Input.is_physical_key_pressed(negative))
