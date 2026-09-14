@@ -42,7 +42,7 @@ func setup() -> void:
 	sun.rotation_degrees = Vector3(-35, -25, 0)
 	sun.light_energy = 1.0
 	add_child(sun)
-	_obstacle(Vector3(0, -13, -80), Vector3(400, 2, 420), Color(0.13, 0.17, 0.21))
+	_obstacle(Vector3(0, -19, -80), Vector3(400, 2, 420), Color(0.13, 0.17, 0.21))
 	_obstacle(Vector3(0, 30, -245), Vector3(400, 100, 4), Color(0.2, 0.26, 0.31))
 	# Docking truss: individual bars also obstruct rifle rays and suit movement.
 	for x in [-42.0, 42.0]:
@@ -52,15 +52,15 @@ func setup() -> void:
 		_obstacle(Vector3(x, 11, -35), Vector3(0.35, 4, 0.35), Color(0.37, 0.4, 0.45))
 	# Nearby human doorway: opening 0.9 x 2.0 m, a local scale reference.
 	for x in [-7.55, -6.45]:
-		_obstacle(Vector3(x, -10.9, -8), Vector3(0.2, 2.2, 0.2), Color(0.95, 0.65, 0.2))
-	_obstacle(Vector3(-7, -9.7, -8), Vector3(1.3, 0.2, 0.2), Color(0.95, 0.65, 0.2))
-	_label("HUMAN DOOR 2 m", Vector3(-7, -8.8, -8), 0.015)
+		_obstacle(Vector3(x, -16.9, -8), Vector3(0.2, 2.2, 0.2), Color(0.95, 0.65, 0.2))
+	_obstacle(Vector3(-7, -15.7, -8), Vector3(1.3, 0.2, 0.2), Color(0.95, 0.65, 0.2))
+	_label("HUMAN DOOR 2 m", Vector3(-7, -14.8, -8), 0.015)
 	_add_target(Vector3(-18, -7, -60), 10.0, "60 m / 10 m")
 	_add_target(Vector3(0, -5, -120), 14.0, "120 m / 14 m")
 	_add_target(Vector3(24, -3, -200), 18.0, "200 m / 18 m MECH")
 	_emitter = _box(emitter_position, Vector3(1.4, 1.4, 1.4), Color(1, 0.2, 0.12), true)
-	_label("INCOMING / 60 m", emitter_position + Vector3(0, 2, 0), 0.055)
-	for marker in [Vector3(-12, -11.9, -25), Vector3(12, -11.9, -45)]:
+	_label("INCOMING / 60 m", emitter_position + Vector3(0, 4, 0), 0.025)
+	for marker in [Vector3(-12, -17.9, -25), Vector3(12, -17.9, -45)]:
 		_box(marker, Vector3(6, 0.12, 6), Color(0.1, 0.75, 0.85), true)
 		_label("STOP MARKER", marker + Vector3(0, 3, 0), 0.035)
 	reset()

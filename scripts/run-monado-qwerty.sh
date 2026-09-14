@@ -4,7 +4,7 @@ set -euo pipefail
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 runtime_root=${TMPDIR:-/tmp}
 runtime_dir=$(mktemp -d -p "$runtime_root" mech-vr-monado.XXXXXX)
-artifact_dir="$repo_dir/test-artifacts"
+artifact_dir="$repo_dir/artifacts"
 service_log="$artifact_dir/monado-qwerty.log"
 service_pid=""
 
@@ -53,7 +53,7 @@ fi
 echo "Isolated Monado QWERTY runtime: $runtime_dir"
 echo "Monado log: $service_log"
 if [[ ${1:-} == "--smoke" ]]; then
-  godot4 --path "$repo_dir" --xr-mode on --quit-after 180 -- --xr
+  godot4 --path "$repo_dir" --xr-mode on --audio-driver Dummy --quit-after 180 -- --xr
   exit $?
 fi
 godot4 --path "$repo_dir" --xr-mode on -- --xr
