@@ -117,3 +117,33 @@ capture `artifacts/mirror-900.png` shows the mirror filling the resized client
 area. QWERTY's tiny eye target makes that test image pixelated; it is not a
 recording-quality or real-headset performance test. All 549 existing checks pass
 (`artifacts/mirror-tests.log`). The known engine shutdown messages remain.
+
+## Parked grips and flight puppet follow-up
+
+User reports the previous demo worked and recorded a short video. This is
+positive subjective feedback, not a complete physical binding/timing report.
+
+- All 1,358 deterministic checks pass: control 481, range 21, input 19,
+  previous integration 28, parked handles 119, flight pose 667, and new combined
+  grip/MFD/hologram integration 23 (`artifacts/grip-flight-tests.log`).
+- Rendered comparison probe passed with both grips held, left parked at the
+  MFD, and right reacquired in calibrated mode. Inspected screenshots
+  `artifacts/grip-flight-90.png` and `grip-flight-230.png` show the dashboard,
+  separate physical/parked handles and articulated miniature. Render log:
+  `artifacts/grip-flight-render.log`. Headless editor import also succeeded.
+- Isolated Monado QWERTY startup, seated calibration, focus and both tracked
+  controllers passed, exit 0 (`artifacts/grip-flight-xr.log`). Mirror attachment
+  followed the tiled window at 1440×2501 with the eye target still 320×240.
+  The first attempt lacked display variables; retry used DISPLAY=:0 and the
+  absolute Wayland socket because the runner isolates XDG_RUNTIME_DIR.
+- The existing stock engine OpenXR session-stop, GLES cleanup and leaked-object
+  shutdown messages remain. This is a startup/tracking preflight, not a clean
+  engine-teardown result. Normal Monado PID 3023114 was not restarted; no game
+  or private runtime remains running after checks.
+
+New Index grip pressure thresholds, parked-handle reach, calibrated-angle
+recovery, miniature readability, and flight-pose preference require the next
+headset test. The private simple-controller profile does not verify Index
+squeeze behavior. Tests establish bounded transforms, fresh-input handoffs and
+no hologram writes into gameplay geometry, not comfort or physical realism.
+B/C control presets, physical cockpit gimbals and torque simulation are deferred.

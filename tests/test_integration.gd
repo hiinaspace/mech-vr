@@ -44,6 +44,7 @@ func run() -> void:
 		previous_settings = FileAccess.get_file_as_bytes(settings_path)
 	scene = load("res://main.tscn").instantiate()
 	root.add_child(scene)
+	scene.handles.enabled = false
 	scene.set_process(false)
 	scene.set_physics_process(false)
 	var original = scene.adapter
@@ -101,7 +102,7 @@ func run() -> void:
 	check(scene.model.owners[1] == "UI" and is_equal_approx(scene.world.cadence, 2.5), "Held trigger entering UI cannot click cadence")
 	var held: Transform3D = scene.model.arm_actual[1]
 	input.current.ui_right = false
-	aim_row(3)
+	aim_row(2)
 	for i in range(8):
 		step()
 	check(scene.model.arm_actual[1].is_equal_approx(held), "Live right hand panel pointing holds actual rifle pose")

@@ -1,7 +1,7 @@
 # M0a seated headset test
 
 Initial user feedback is positive; see [playtest notes](playtest-notes.md).
-The lowered dashboard and pose miniature are ready for a follow-up look.
+The dashboard, parked grip controls, and flight-pose miniature are ready for comparison.
 
 Use sayu's normal Beyond/Index VR setup. No shared service restart is part of
 this handoff. Sit facing forward with controllers in a comfortable neutral
@@ -20,7 +20,9 @@ XR_RUNTIME_JSON=/run/current-system/sw/share/openxr/1/openxr_monado.json \
    markers and external arms. Point either hand at RESET / SEATED CALIBRATE and
    use a fresh trigger press if the seat needs correction. Reset blends arms
    for 0.6 seconds with gameplay inhibited. Check the console is readable.
-2. **Resume and bindings:** click RESUME or click the right thumbstick. Left
+2. **Resume and bindings:** click RESUME or click the right thumbstick. Release
+   grip, reach near each visible handle (within 12 cm; it highlights green),
+   then squeeze to acquire it. Keep gripping while controlling that arm. Left
    stick strafes/forwards; right stick X yaws; right stick Y ascends/descends.
    Right A changes Y to pitch; center the stick before it activates. Left
    trigger boosts and left A (the X-equivalent) brakes. Release-to-slow is on.
@@ -30,19 +32,31 @@ XR_RUNTIME_JSON=/run/current-system/sw/share/openxr/1/openxr_monado.json \
    shield across the bright incoming bolt path; move it aside once. Check
    actual reticle/impact agreement and BLOCK versus HIT counts. The shield is
    a finite 4 × 6 m slab, not a shield-up flag.
-4. **Live MFD:** right B (or left B/Y-equivalent) holds that robot arm and gives
-   that hand UI ownership. Release the trigger, aim at the MFD, then click to
-   change cadence. The other arm stays live. B returns to arm control without
-   a snap; release the trigger before firing/boosting again. Brake remains
-   available while the left hand owns UI. Repeat three times.
-5. **Pause and report:** right stick click pauses. Record any wrong binding,
+4. **Park and compare:** release grip. The cockpit handle and actual arm stay
+   parked while the physical hand can move away and point at the MFD. Release
+   trigger before clicking. Regrab near the parked handle with a fresh squeeze.
+   Try holding the shield near the face, then freeing the hand. Compare the
+   live REGRAB row: FREE preserves the current robot angle on reacquisition;
+   CALIBRATED ANGLE keeps position rebasing but gradually aligns to the physical
+   controller's cockpit-relative orientation. Fire/boost stays inhibited until
+   alignment and a real trigger release. Switching modes parks both handles.
+   The CONTROL row restores the previous B-button arm/UI toggle if desired.
+   Detached hands cannot command their sticks; left A brake remains available.
+5. **Flight puppet:** use the HOLOGRAM row to compare FLIGHT PREVIEW with the
+   original ACTUAL RIG. Accelerate, boost, strafe and brake: the preview spine
+   leans toward commanded acceleration, with backpack exhaust plus residual
+   vernier exhaust. During coast, jets extinguish while the body can retain a
+   velocity-aligned pose. Watch shoulder/elbow reach and readability. Red wrist
+   markers indicate targets beyond the preview arm's reach. This only animates
+   the miniature: cockpit, real weapons, shield and collision stay unchanged.
+6. **Pause and report:** right stick click pauses. Record any wrong binding,
    uncomfortable scale/reach, unreadable text, unintended fire/thrust, arm
    snap, or frame hitch. A keyboard helper can press F8 to save the preceding
    trace. Stop whenever the controls or comfort make continuation unhelpful.
 
 Index labels differ from the draft X/Y notation: each controller physically
-has A/B. Left A = brake, left B = left UI; right A = vertical/pitch mode,
-right B = right UI. Right thumbstick click is the pause fallback because the
+has A/B. Left A = brake; right A = vertical/pitch mode. In legacy mode,
+left B = left UI and right B = right UI. Right thumbstick click is the pause fallback because the
 system menu button may be reserved by the runtime.
 
 Record build HEAD, headset refresh/resolution, seating/neutral pose and result.

@@ -41,6 +41,9 @@ func set_mode(value: String) -> void:
 		grabbed[i] = false
 		_ready[i] = false
 
+func action_inhibited(index: int) -> bool:
+	return _action_gate[index]
+
 func step(sample: Dictionary, control: MechControl, _dt: float) -> Dictionary:
 	var out := sample.duplicate()
 	if not enabled:

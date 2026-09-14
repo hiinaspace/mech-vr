@@ -8,7 +8,7 @@ finite incoming bolts, explicit arm/UI handoff, and a live cadence MFD.
 # From this checkout, using the installed Godot engine:
 ./scripts/run.sh                 # desktop, starts paused
 ./scripts/run.sh --xr            # native OpenXR, starts paused
-./scripts/test.sh                # 549 deterministic checks
+./scripts/test.sh                # 1,358 deterministic checks
 ./scripts/run-monado-qwerty.sh --smoke  # private simulated runtime
 ```
 
@@ -17,15 +17,20 @@ context, prefix rendered commands with `DISPLAY=:0 WAYLAND_DISPLAY=wayland-1`.
 A normal graphical terminal usually already has them. Never point the private
 smoke at the user's runtime socket or restart their VR services.
 
-**Next check: [dashboard and pose-miniature follow-up](docs/m0a-headset-test.md).**
+**Next check: [grip and flight-pose comparison](docs/m0a-headset-test.md).**
 Initial user feedback and the reattachment tradeoff are in
 [playtest notes](docs/playtest-notes.md).
 Read [verification and limits](docs/verification.md) for actual evidence. No
 complete physical timing/binding validation or A/B/C preference result is claimed.
 
-Desktop: WASD translation, Q/E descend/ascend, arrows yaw and vertical/pitch,
+Default control: hold grip near a cockpit handle to grab it; release to park
+the handle and robot arm while reaching for UI. The live MFD compares FREE and
+CALIBRATED ANGLE regrabs, the previous B-button mode, and flight/actual holograms.
+See [UNDERDOGS research](docs/research/underdogs-controls.md) for design references.
+
+Desktop: hold G/H for left/right grip. WASD translation, Q/E descend/ascend, arrows yaw and vertical/pitch,
 Tab switches the right-stick Y function, Shift boost, Space brake, left mouse
-fire. Z/X toggles left/right arm UI; Shift/left mouse clicks when that hand owns
+fire. In legacy B-button mode, Z/X toggles left/right arm UI; Shift/left mouse clicks when that hand owns
 UI. 1/2/3 selects head/left/right pose. Right-mouse drag rotates only that pose;
 Ctrl+right-drag moves XY and Alt+right-drag moves depth. Esc pauses, R resets
 while paused, F6/F7 simulates hand tracking loss, F8 retains the last 30 seconds

@@ -4,6 +4,10 @@ const ControlModel = preload("res://scripts/control_model.gd")
 const InputAdapter = preload("res://scripts/input_adapter.gd")
 const RangeWorld = preload("res://scripts/range_world.gd")
 var model = ControlModel.new()
+var handles = preload("res://scripts/cockpit_handles.gd").new()
+var handle_visuals: Array[Node3D] = []
+var pointer_was_active := [false,false]
+var hand_live := [true,true]
 var adapter = InputAdapter.new()
 var world = RangeWorld.new()
 var body := CharacterBody3D.new()
@@ -72,12 +76,16 @@ func _ready() -> void:
 	_build_panel()
 	body.add_child(hologram)
 	hologram.setup(body,pose_geometry)
+	handles.enabled = bool(settings.get_value("experiment","grip_controls",true))
+	handles.set_mode(str(settings.get_value("experiment","regrab_mode","free")))
+	hologram.flight_enabled = bool(settings.get_value("experiment","flight_preview",true))
 	world.cadence = float(settings.get_value("range", "cadence", 2.5))
 	slow_turn = bool(settings.get_value("control","slow_turn",false))
 	snap = bool(settings.get_value("control","snap_yaw",false))
 	_apply_turn_settings()
 	if replay:
 		paused = false
+		handles.enabled = false
 		world.cadence = 2.5
 		slow_turn = false
 		snap = false
@@ -120,7 +128,16 @@ func _build_cockpit() -> void:
 			box(arm, Vector3(.22,.22,1.2), Vector3(0,0,-2.1), Color("dfbd6c"))
 		segments.append(box(body, Vector3(.6,.6,1), Vector3.ZERO, Color("526475")))
 		segments.append(box(body, Vector3(.5,.5,1), Vector3.ZERO, Color("768693")))
-		hands.append(box(body, Vector3(.06,.06,.14), Vector3.ZERO, Color("fcce74") if i else Color("71d6ee")))
+		hands.append(box(body, Vector3(.045,.045,.10), Vector3.ZERO, Color("bceefa")))
+		var hand_material := hands[i].material_override as StandardMaterial3D
+		hand_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		hand_material.albedo_color.a = .35
+		var handle := Node3D.new()
+		body.add_child(handle)
+		handle_visuals.append(handle)
+		box(handle,Vector3(.055,.10,.07),Vector3.ZERO,Color("ffd36b") if i else Color("3eaabd"))
+		box(handle,Vector3(.095,.025,.10),Vector3(0,.055,-.025),Color("627582"))
+		box(handle,Vector3(.015,.015,.08),Vector3(0,.075,-.025),Color("f0fff3"))
 		pointers.append(box(body, Vector3(.005,.005,1), Vector3.ZERO, Color("6dffd9")))
 	pose_geometry.append_array(arms)
 	pose_geometry.append_array(segments)
@@ -166,7 +183,10 @@ func _physics_process(dt: float) -> void:
 		adapter.camera.transform = sample.head
 	sample.paused = paused or resume_delay > 0.0
 	resume_delay = maxf(0.0, resume_delay-dt)
-	var result: Dictionary = model.step(sample,dt)
+	var old_velocity: Vector3 = model.velocity
+	var mapped_sample: Dictionary = handles.step(sample,model,dt)
+	var result: Dictionary = model.step(mapped_sample,dt)
+	var commanded_acceleration: Vector3 = (model.velocity-old_velocity)/maxf(dt,.00001)
 	body.basis = result.body_basis
 	body.velocity = model.velocity
 	if not result.paused:
@@ -182,12 +202,19 @@ func _physics_process(dt: float) -> void:
 			arms[i].transform = reset_from[i].interpolate_with(model.arm_actual[i],1.0-reset_blend/.6)
 		var hand_pose: Transform3D = sample.left if i == 0 else sample.right
 		hands[i].transform = hand_pose
-		hands[i].visible = sample.get("valid_left" if i == 0 else "valid_right",true)
+		handle_visuals[i].visible = handles.enabled
+		handle_visuals[i].transform = handles.handles[i]
+		hand_live[i] = sample.get("valid_left" if i == 0 else "valid_right",true) and sample.focused
+		hands[i].visible = hand_live[i]
+		var nearby: bool = hand_pose.origin.distance_to(handles.handles[i].origin) <= handles.CAPTURE_RADIUS
+		var grip_material: StandardMaterial3D = handle_visuals[i].get_child(0).material_override
+		grip_material.albedo_color = Color("83ffac") if hand_live[i] and nearby and not handles.grabbed[i] else (Color("ffd36b") if i else Color("3eaabd"))
 		var shoulder := Vector3(-3.5 if i == 0 else 3.5,-2,1)
 		var end := arms[i].position
 		var elbow := (shoulder+end)*.5 + Vector3(-1.5 if i == 0 else 1.5,-1.5,0)
 		_segment(segments[i*2],shoulder,elbow,.6)
 		_segment(segments[i*2+1],elbow,end,.5)
+	hologram.update_flight(dt,body.basis.inverse()*model.velocity,body.basis.inverse()*commanded_acceleration,result.paused)
 	hologram.sync()
 	reset_blend = maxf(0,reset_blend-dt)
 	var muzzle := arms[1].global_transform * Transform3D(Basis.IDENTITY,Vector3(0,0,-2.7))
@@ -212,7 +239,7 @@ func _physics_process(dt: float) -> void:
 	_panel_input(sample,result)
 	_update_display(result,muzzle)
 	if frames % 9 == 0:
-		var row := {"t":elapsed,"position":str(body.position),"velocity":str(model.velocity),"head":str(sample.head),"left":str(sample.left),"right":str(sample.right),"owners":model.owners.duplicate(),"actual":str(model.arm_actual),"desired":str(model.arm_targets),"boost":model.boost,"brake":sample.brake,"hits":world.hits,"blocks":world.blocks,"target_hits":world.target_hits}
+		var row := {"t":elapsed,"position":str(body.position),"velocity":str(model.velocity),"head":str(sample.head),"left":str(sample.left),"right":str(sample.right),"owners":model.owners.duplicate(),"actual":str(model.arm_actual),"desired":str(model.arm_targets),"boost":model.boost,"brake":sample.brake,"handles":str(handles.handles),"grabbed":handles.grabbed.duplicate(),"regrab_mode":handles.mode,"grip_controls":handles.enabled,"commanded_acceleration":str(commanded_acceleration),"flight_preview":hologram.flight_enabled,"hits":world.hits,"blocks":world.blocks,"target_hits":world.target_hits}
 		ring.append(row)
 		if ring.size() > 300: ring.pop_front()
 		if replay: trace.store_line(JSON.stringify(row))
@@ -240,20 +267,23 @@ func panel_hit(pose: Transform3D) -> Vector2:
 
 func _panel_input(sample: Dictionary, result: Dictionary) -> void:
 	hovered = -1
+	var click_consumed := false
 	for i in range(2):
 		var pose: Transform3D = sample.left if i == 0 else sample.right
 		var valid: bool = sample.get("valid_left" if i == 0 else "valid_right",true) and sample.focused
-		var active: bool = valid and (paused or model.owners[i] == "UI")
+		var active: bool = valid and (paused or (handles.enabled and not handles.grabbed[i]) or (not handles.enabled and model.owners[i] == "UI"))
 		pointers[i].visible = active
 		pointers[i].transform = pose * Transform3D(Basis.IDENTITY,Vector3(0,0,-.45))
 		var uv := panel_hit(pose) if active else Vector2(-1,-1)
 		var trigger: float = sample.left_trigger if i == 0 else sample.right_trigger
-		var fresh: bool = trigger > .55 and not menu_down[i]
+		var fresh: bool = trigger > .55 and not menu_down[i] and pointer_was_active[i]
+		pointer_was_active[i] = active
 		menu_down[i] = trigger > .55 or not valid
 		if uv.x < 0: continue
 		hovered = int(uv.y/100)
-		var clicked: bool = fresh if paused else (result.click_left if i == 0 else result.click_right)
-		if not clicked: continue
+		var clicked: bool = fresh if paused or handles.enabled else (result.click_left if i == 0 else result.click_right)
+		if not clicked or click_consumed: continue
+		click_consumed = true
 		if paused:
 			if uv.y >= 200 and uv.y < 300: _reset()
 			elif uv.y >= 300 and uv.y < 400: _toggle_pause()
@@ -264,10 +294,31 @@ func _panel_input(sample: Dictionary, result: Dictionary) -> void:
 				snap = not snap
 				_apply_turn_settings()
 		else:
-			world.cadence = 4.0 if world.cadence < 3 else 2.5
-			settings.set_value("range","cadence",world.cadence)
+			if uv.y < 200: continue
+			if uv.y < 300:
+				world.cadence = 4.0 if world.cadence < 3 else 2.5
+				settings.set_value("range","cadence",world.cadence)
+				log_event("mfd_click",{"hand":i,"cadence":world.cadence})
+			elif uv.y < 400:
+				handles.set_mode("calibrated" if handles.mode == "free" else "free")
+				settings.set_value("experiment","regrab_mode",handles.mode)
+				log_event("regrab_mode",{"mode":handles.mode})
+			elif uv.y < 500:
+				handles.enabled = not handles.enabled
+				handles.reset()
+				# Pass one explicit HOLD step on either path; no stale trigger action.
+				var neutral := sample.duplicate()
+				neutral.valid_left = false
+				neutral.valid_right = false
+				neutral.paused = true
+				model.step(neutral,0)
+				settings.set_value("experiment","grip_controls",handles.enabled)
+				log_event("grip_controls",{"enabled":handles.enabled})
+			else:
+				hologram.flight_enabled = not hologram.flight_enabled
+				settings.set_value("experiment","flight_preview",hologram.flight_enabled)
+				log_event("flight_preview",{"enabled":hologram.flight_enabled})
 			if not replay: settings.save("user://m0a.cfg")
-			log_event("mfd_click",{"hand":i,"cadence":world.cadence})
 
 func _apply_turn_settings() -> void:
 	# Tunables are kept in the single control model.
@@ -278,18 +329,26 @@ func _apply_turn_settings() -> void:
 
 func _update_display(result: Dictionary, muzzle: Transform3D) -> void:
 	display.visible = not paused
-	var rows := ["M0a / PAUSED — PRESET A", "Aim either hand + fresh trigger", "RESET / SEATED CALIBRATE [R]", "RESUME [Esc / right stick click]", "TURN: %s (click)" % ("LOW 15 / 10" if slow_turn else "30 / 20 deg/s"), "SNAP YAW: %s (click)" % ("ON" if snap else "OFF")]
+	var rows := ["M0a / PAUSED", "Aim either hand + fresh trigger", "RESET / SEATED CALIBRATE [R]", "RESUME [Esc / right stick click]", "TURN: %s (click)" % ("LOW 15 / 10" if slow_turn else "30 / 20 deg/s"), "SNAP YAW: %s (click)" % ("ON" if snap else "OFF")]
+	if not paused:
+		rows[2] = "EMITTER %.1fs  /  CLICK" % world.cadence
+		rows[3] = "REGRAB: %s" % ("FREE" if handles.mode == "free" else "CALIBRATED ANGLE")
+		rows[4] = "CONTROL: %s" % ("HOLD GRIP" if handles.enabled else "B BUTTON TOGGLE")
+		rows[5] = "HOLOGRAM: %s" % ("FLIGHT PREVIEW" if hologram.flight_enabled else "ACTUAL RIG")
 	for row in range(6):
-		menu_labels[row].visible = paused
+		menu_labels[row].visible = paused or row >= 2
 		menu_labels[row].text = rows[row]
 		menu_labels[row].modulate = Color("7cffe0") if hovered == row and row >= 2 else Color.WHITE
-	if paused:
-		pass
-	else:
-		var velocity: Vector3 = body.basis.inverse()*model.velocity
-		display.text = "M0a / A — TRACKED ARMS\nSPEED %4.1f  BOOST %3.0f%%\nVEL %+.1f %+.1f %+.1f\nR STICK: %s%s\nLEFT: %s\nRIGHT: %s\nRANGE %3.0fm  STOP %.1fm\nTARGET %s BLOCK %s HIT %s\n\nEMITTER %.1fs — CLICK TO CHANGE\nB/Y: ARM <> UI; release trigger\nX brake  /  A vertical-pitch\nEsc/menu pause; F8 mark issue" % [model.velocity.length(),model.boost*100,velocity.x,velocity.y,velocity.z,"PITCH" if result.attitude_mode else "VERTICAL"," / NEUTRAL!" if result.mode_neutral_required or result.movement_neutral_required else "",_owner_label(0),_owner_label(1),muzzle.origin.distance_to(reticle.global_position),model.velocity.length_squared()/90.0,str(world.target_hits),str(world.blocks),str(world.hits),world.cadence]
+	if not paused:
+		display.text = "SPD %4.1f  BOOST %3.0f%%  %s%s\nL: %s\nR: %s\nHIT %s BLOCK %s TARGET %s  RANGE %.0fm\n%s" % [model.velocity.length(),model.boost*100,"PITCH" if result.attitude_mode else "VERTICAL"," / CENTER STICKS" if result.mode_neutral_required or result.movement_neutral_required else "",_owner_label(0),_owner_label(1),str(world.hits),str(world.blocks),str(world.target_hits),muzzle.origin.distance_to(reticle.global_position),"Release grip: park / UI. Squeeze nearby: grab" if handles.enabled else "B: arm / UI toggle. Release trigger after handoff."]
 
 func _owner_label(index: int) -> String:
+	if handles.enabled:
+		if not hand_live[index]: return "TRACKING LOST / PARKED"
+		if handles.grabbed[index]:
+			return "ALIGN / RELEASE TRIGGER" if handles.action_inhibited(index) else "ARM / GRIP HELD"
+		var nearby: bool = hands[index].position.distance_to(handles.handles[index].origin) <= handles.CAPTURE_RADIUS
+		return "PARKED / SQUEEZE TO GRAB" if nearby else "PARKED / REACH TO GRAB"
 	if model.owners[index] == "UI": return "ARM HOLD / HAND UI"
 	if model.owners[index] == "HOLD": return "HOLD — TRACKING / PAUSE"
 	return "ARM CONTROL"
@@ -304,6 +363,7 @@ func _reset() -> void:
 	reset_from = model.arm_actual.duplicate()
 	adapter.recenter()
 	model.reset()
+	handles.reset()
 	body.transform = Transform3D.IDENTITY
 	world.reset()
 	reset_blend = .6
@@ -345,7 +405,7 @@ func replay_sample(t: float) -> Dictionary:
 	if t > 3: left.origin.x += .6
 	if t > 4: right.basis = Basis.from_euler(Vector3(0,.12*sin(t),0))
 	if t > 5 and t < 6.1:
-		right.basis = Basis.looking_at(panel.position-right.origin,Vector3.UP)
+		right.basis = Basis.looking_at((panel.transform * Vector3(0,.04,0))-right.origin,Vector3.UP)
 	var s := {"head":head,"left":left,"right":right,"valid_left":true,"valid_right":true,"focused":true,"move":Vector3.RIGHT if t < 1 else Vector3.ZERO,"yaw":0.0,"vertical":0.0,"mode_toggle":false,"ui_left":false,"ui_right":t > 5 and t < 5.1 or t > 6 and t < 6.1,"left_trigger":0.0,"right_trigger":1.0 if t > 2 else 0.0,"brake":t > 1 and t < 2}
 	if t > 5.25 and t < 5.4 or t > 6.5 and t < 6.65:
 		s.right_trigger = 0.0

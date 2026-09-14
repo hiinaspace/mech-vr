@@ -111,7 +111,7 @@ func sample() -> Dictionary:
 		"focused": (focused and _head_tracked()) if xr_active else _window_focused,
 		"move": Vector3.ZERO, "yaw": 0.0, "vertical": 0.0,
 		"mode_toggle": false, "ui_left": false, "ui_right": false,
-		"left_trigger": 0.0, "right_trigger": 0.0, "brake": false,
+		"left_trigger": 0.0, "right_trigger": 0.0, "left_grip": 0.0, "right_grip": 0.0, "brake": false,
 		"timestamp_usec": Time.get_ticks_usec(),
 	}
 	if xr_active:
@@ -127,6 +127,8 @@ func sample() -> Dictionary:
 		out.ui_right = controllers[1].is_button_pressed("by_button")
 		out.left_trigger = controllers[0].get_float("trigger")
 		out.right_trigger = controllers[1].get_float("trigger")
+		out.left_grip = controllers[0].get_float("grip")
+		out.right_grip = controllers[1].get_float("grip")
 		out.brake = controllers[0].is_button_pressed("ax_button")
 		var left_menu := _fresh_button("left_menu", controllers[0].is_button_pressed("menu_button"), out.focused and out.valid_left)
 		var right_menu := _fresh_button("right_menu", controllers[1].is_button_pressed("menu_button") or controllers[1].is_button_pressed("primary_click"), out.focused and out.valid_right)
@@ -143,6 +145,8 @@ func sample() -> Dictionary:
 		out.ui_right = Input.is_physical_key_pressed(KEY_X)
 		out.left_trigger = 1.0 if Input.is_physical_key_pressed(KEY_SHIFT) else 0.0
 		out.right_trigger = 1.0 if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) else 0.0
+		out.left_grip = 1.0 if Input.is_physical_key_pressed(KEY_G) else 0.0
+		out.right_grip = 1.0 if Input.is_physical_key_pressed(KEY_H) else 0.0
 		out.brake = Input.is_physical_key_pressed(KEY_SPACE)
 	mask_unavailable(out)
 	if xr_active and not _tracking_ready_logged and out.focused and out.valid_left and out.valid_right:
@@ -170,11 +174,13 @@ func mask_unavailable(out: Dictionary) -> void:
 	if not left_live:
 		out.move = Vector3.ZERO
 		out.left_trigger = 0.0
+		out.left_grip = 0.0
 		out.brake = false
 	if not right_live:
 		out.yaw = 0.0
 		out.vertical = 0.0
 		out.right_trigger = 0.0
+		out.right_grip = 0.0
 
 func _fresh_button(action: String, pressed: bool, available: bool) -> bool:
 	if not available:
