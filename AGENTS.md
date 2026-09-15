@@ -17,7 +17,8 @@ configuration, restart shared Codex/VR services, or disrupt other work silently.
 
 Preserve unrelated dirty files in all reference repositories and the org vault.
 Original Industrial Petting Unity source is outside scope; use the permitted
-Godot pet-demo and authored UX notes only. No publication/push is authorized.
+Godot pet-demo and authored UX notes only. The user authorized the initial private GitHub push. Further pushes require
+user authorization; no public visibility change is authorized.
 Use Hiina <hiina@hiina.space> for repository commits and add
 `Assisted-by: Codex:<actual-model-id>`; never Signed-off-by. Keep useful local
 milestones committed without including generated caches, recordings or secrets.

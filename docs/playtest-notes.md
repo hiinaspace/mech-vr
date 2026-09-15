@@ -146,3 +146,12 @@ is a circular screen above the held right cockpit controller. Existing arm
 thumbstick flight remains available. This explicitly expands the initial M0a
 plan's roll, handle, projectile and sword-contact deferrals, without authorizing
 full melee physics, health systems or a broader game progression.
+
+
+## MVP acceptance and private repository
+
+The user calls the result a successful MVP and authorizes committing it,
+creating a private GitHub repository, and pushing the milestone. The next
+design direction and project license are intentionally undecided. This is
+user acceptance of the prototype, not a claim that every physical test-card
+item or the previously blocked isolated XR retry was completed.

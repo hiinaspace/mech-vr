@@ -24,7 +24,10 @@ targets have no health/destruction state. A HUD cue identifies the dock and weap
 The art pass adds a CC0 starfield, exterior cylinder backdrop, warm sunlight,
 HDR glow, seven verniers, local exhaust lighting and a short world-space wake.
 
-**Next check: [hybrid flight and combat headset check](docs/m0a-headset-test.md).**
+**MVP accepted by the user; next direction is undecided.**
+The [headset test card](docs/m0a-headset-test.md) remains available for further trials.
+Repository visibility is private; the project license is undecided. Third-party
+asset terms are recorded separately in [THIRD_PARTY.md](THIRD_PARTY.md).
 Initial user feedback and the reattachment tradeoff are in
 [playtest notes](docs/playtest-notes.md).
 Read [verification and limits](docs/verification.md) for actual evidence. No
