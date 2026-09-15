@@ -7,6 +7,12 @@ runtime_dir=$(mktemp -d -p "$runtime_root" mech-vr-monado.XXXXXX)
 artifact_dir="$repo_dir/artifacts"
 service_log="$artifact_dir/monado-qwerty.log"
 service_pid=""
+scene_args=()
+if [[ ${1:-} == "--melee" ]]; then
+  shift
+  scene_args=(res://melee.tscn)
+  service_log="$artifact_dir/melee-monado-qwerty.log"
+fi
 
 mkdir -p "$artifact_dir"
 chmod 700 "$runtime_dir"
@@ -53,7 +59,7 @@ fi
 echo "Isolated Monado QWERTY runtime: $runtime_dir"
 echo "Monado log: $service_log"
 if [[ ${1:-} == "--smoke" ]]; then
-  godot4 --path "$repo_dir" --xr-mode on --audio-driver Dummy --quit-after "${2:-180}" -- --xr
+  godot4 --path "$repo_dir" "${scene_args[@]}" --xr-mode on --audio-driver Dummy --quit-after "${2:-180}" -- --xr
   exit $?
 fi
-godot4 --path "$repo_dir" --xr-mode on -- --xr
+godot4 --path "$repo_dir" "${scene_args[@]}" --xr-mode on -- --xr

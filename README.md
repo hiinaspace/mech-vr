@@ -1,4 +1,15 @@
-# Mech VR — M0a
+# Mech VR — greybox
+
+## Melee experiment
+
+`./scripts/run-melee.sh --xr` launches the new contact lab; omit `--xr` for desktop.
+Finite-force rigid-body sword/shield contact, fixed/free opponents, bracing
+comparisons, a paired puppet view and 20-second replay with annotations.
+See the [melee test card](docs/melee-headset-test.md),
+[verification](docs/melee-verification.md) and
+[design research](docs/melee-greybox-research.md).
+
+## Original ranged MVP
 
 Runnable seated PCVR cockpit experiment in Godot 4.7.2, Mobile / Vulkan.
 Preset A only: cockpit-relative flight, independent tracked rifle/shield,
@@ -8,7 +19,7 @@ finite incoming bolts, explicit arm/UI handoff, and a live cadence MFD.
 # From this checkout, using the installed Godot engine:
 ./scripts/run.sh                 # desktop, starts paused
 ./scripts/run.sh --xr            # native OpenXR, starts paused
-./scripts/test.sh                # 1,638 deterministic / actual-scene checks
+./scripts/test.sh                # legacy and melee checks
 ./scripts/run-monado-qwerty.sh --smoke  # private simulated runtime
 ```
 
@@ -24,7 +35,7 @@ targets have no health/destruction state. A HUD cue identifies the dock and weap
 The art pass adds a CC0 starfield, exterior cylinder backdrop, warm sunlight,
 HDR glow, seven verniers, local exhaust lighting and a short world-space wake.
 
-**MVP accepted by the user; next direction is undecided.**
+**Ranged MVP accepted; melee contact lab now ready for its first headset test.**
 The [headset test card](docs/m0a-headset-test.md) remains available for further trials.
 Repository visibility is private; the project license is undecided. Third-party
 asset terms are recorded separately in [THIRD_PARTY.md](THIRD_PARTY.md).
