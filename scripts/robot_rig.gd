@@ -13,11 +13,15 @@ var rails: Array[MeshInstance3D] = []
 var legs: Array[MeshInstance3D] = []
 var flames: Array[MeshInstance3D] = []
 var endpoints: Array[Vector3] = []
+var nozzles: Array[MeshInstance3D] = []
+var jet_lights: Array[OmniLight3D] = []
+var exhaust_origins: Array[Vector3] = []
 var rail_extension := [0.0,0.0]
 var chest_yaw := 0.0
 var lower_basis := Basis.IDENTITY
 var head_basis := Basis.IDENTITY
 var posture_enabled := true
+var effect_strength := 0.0
 
 func box(parent: Node3D, size: Vector3, at: Vector3, color: Color) -> MeshInstance3D:
 	var mesh := BoxMesh.new()
@@ -52,12 +56,25 @@ func setup() -> void:
 		rails.append(box(self,Vector3.ONE,Vector3.ZERO,Color("76959c")))
 		for _part in 2: links.append(box(self,Vector3.ONE,Vector3.ZERO,Color("537285")))
 		for _part in 3: legs.append(box(self,Vector3.ONE,Vector3.ZERO,Color("3e5c72")))
-	for i in 3:
-		var flame := box(self,Vector3.ONE,Vector3.ZERO,Color("8cfff0") if i<2 else Color("ffc777"))
-		flame.material_override.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	for i in 7:
+		var flame := box(self,Vector3.ONE,Vector3.ZERO,Color("8cfff0") if i!=2 else Color("ffc777"))
+		flame.material_override.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		flame.material_override.emission_enabled = true
+		flame.material_override.emission = Color("72e8ff") if i != 2 else Color("ffbe72")
+		flame.material_override.emission_energy_multiplier = 3.5
+		flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		flames.append(flame)
+		nozzles.append(box(self,Vector3.ONE,Vector3.ZERO,Color("182b3b")))
+	for _i in 2:
+		var light := OmniLight3D.new()
+		light.light_color = Color("7ccfff")
+		light.omni_range = 9.0
+		light.omni_attenuation = 1.6
+		light.shadow_enabled = false
+		add_child(light)
+		jet_lights.append(light)
 
-func update_pose(dt: float, velocity: Vector3, acceleration: Vector3, equipment: Array[Node3D], gaze: Basis, paused := false) -> void:
+func update_pose(dt: float, velocity: Vector3, acceleration: Vector3, equipment: Array[Node3D], gaze: Basis, paused := false, boost_active := false) -> void:
 	flight.step(dt,velocity if posture_enabled else Vector3.ZERO,acceleration if posture_enabled else Vector3.ZERO,paused)
 	var heading := Vector3.ZERO
 	# Hands well in front of the neck contribute; close/behind hands cannot spin the chest.
@@ -84,6 +101,7 @@ func update_pose(dt: float, velocity: Vector3, acceleration: Vector3, equipment:
 		head_basis = Basis(head_basis.get_rotation_quaternion().slerp(head_target.get_rotation_quaternion(),1-exp(-maxf(dt,0)*5)))
 	head.transform = Transform3D(head_basis,HEAD_ANCHOR)
 	endpoints.clear()
+	var limb_nozzles: Array[Vector3] = []
 	for i in 2:
 		var side := -1.0 if i==0 else 1.0
 		var shoulder := torso.position+orientation*Vector3(side*3,4,0)
@@ -99,21 +117,54 @@ func update_pose(dt: float, velocity: Vector3, acceleration: Vector3, equipment:
 		link(links[i*2],points[0],points[1],.7)
 		link(links[i*2+1],points[1],points[2],.6)
 		endpoints.append(points[2])
+		limb_nozzles.append(points[1].lerp(points[2],.72)+orientation*Vector3(side*.65,0,.3))
 		var hip := pelvis+lower_basis*Vector3(side*1.2,-.5,0)
 		var knee := pelvis+lower_basis*Vector3(side*1.35,-3.6,.45+flight.flight_amount*.7)
 		var ankle := pelvis+lower_basis*Vector3(side*1.4,-6.6,.25+flight.flight_amount*1.1)
 		link(legs[i*3],hip,knee,1.25)
 		link(legs[i*3+1],knee,ankle,.95)
 		link(legs[i*3+2],ankle,ankle+lower_basis*Vector3(0,-.1,-1.5),1)
+		limb_nozzles.append(knee.lerp(ankle,.7)+lower_basis*Vector3(side*.55,0,.7))
 	flight.set_jet_basis(orientation,Vector3.ZERO if paused else acceleration)
+	# A speed-limited boost still reads as an active engine. This floor drives
+	# visuals only; the posture model and force decomposition remain physical.
+	var effect_acceleration := Vector3.ZERO if paused else acceleration
+	if not paused and boost_active and velocity.length()>.4 and acceleration.length()<.2:
+		effect_acceleration = velocity.normalized()*6.0
+	effect_strength = effect_acceleration.length()
+	var effect_main := maxf(effect_acceleration.dot(orientation.y),0.0)
+	exhaust_origins.clear()
 	for i in 2:
-		var nozzle := torso.position+orientation*Vector3(-1.1 if i==0 else 1.1,.8,2)
-		flames[i].visible = flight.main_acceleration>.2
-		link(flames[i],nozzle,nozzle-orientation.y*(.2+minf(flight.main_acceleration/8,3)),.4)
-	var residual: Vector3 = flight.residual_acceleration
-	var nozzle := torso.position+orientation*Vector3(0,3,1.9)
-	flames[2].visible = residual.length()>.2
-	link(flames[2],nozzle,nozzle-residual.normalized()*(.2+minf(residual.length()/8,3)),.3)
+		var nozzle := torso.position+orientation*Vector3(-1.25 if i==0 else 1.25,.8,2.35)
+		exhaust_origins.append(nozzle)
+		jet(i,nozzle,-orientation.y,effect_main,.8,5.8)
+	var residual: Vector3 = effect_acceleration-orientation.y*effect_main
+	var nozzle := torso.position+orientation*Vector3(0,3,2.1)
+	jet(2,nozzle,-residual.normalized() if residual.length()>.2 else orientation.z,residual.length(),.48,3.8)
+	# Forearm and calf pods are authored gimballed verniers. They follow resolved
+	# bones, not controller targets, and represent commanded acceleration only.
+	var force := effect_strength
+	var exhaust_direction := -effect_acceleration.normalized() if force>.2 else -orientation.y
+	for i in 4:
+		jet(i+3,limb_nozzles[i],exhaust_direction,force,.32 if i%2==0 else .48,2.6 if i%2==0 else 3.8)
+	for i in 2:
+		jet_lights[i].position = limb_nozzles[i*2]+exhaust_direction*.55
+		jet_lights[i].visible = force>.2
+		jet_lights[i].light_energy = minf(force/8.0,2.5)*1.5
+
+func jet(index: int, origin: Vector3, direction: Vector3, force: float, width: float, maximum_length: float) -> void:
+	var axis := direction.normalized() if direction.length_squared()>.001 else Vector3.DOWN
+	link(nozzles[index],origin-axis*.48,origin,width*1.7)
+	flames[index].visible = force>.2
+	var length := .4+minf(force/4.0,maximum_length)
+	link(flames[index],origin,origin+axis*length,width)
+
+## Cockpit-local nozzle positions converted at query time, so callers can emit a
+## wake into an independent world node without inheriting subsequent robot motion.
+func world_exhaust_origins() -> Array[Vector3]:
+	var result: Array[Vector3] = []
+	for origin in exhaust_origins: result.append(to_global(origin))
+	return result
 
 func link(node: MeshInstance3D, a: Vector3, b: Vector3, width: float) -> void:
 	var delta := b-a

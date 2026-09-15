@@ -56,6 +56,13 @@ func _tint(node: MeshInstance3D) -> void:
 	if node.material_override is StandardMaterial3D:
 		var original: Color = node.material_override.albedo_color
 		if original.r > original.b: mat.albedo_color = Color(1,.75,.3,.8)
+		if node.material_override.emission_enabled:
+			mat.albedo_color = original
+			mat.albedo_color.a = .9
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+			mat.emission_enabled = true
+			mat.emission = node.material_override.emission
+			mat.emission_energy_multiplier = minf(node.material_override.emission_energy_multiplier*.6,4.0)
 	node.material_override = mat
 
 func sync() -> void:
@@ -64,7 +71,7 @@ func sync() -> void:
 	var bounds := AABB()
 	var first := true
 	for source in sources:
-		if source is MeshInstance3D and source.visible:
+		if source is MeshInstance3D and source.is_visible_in_tree():
 			var local: Transform3D = suit.global_transform.affine_inverse()*source.global_transform
 			var mesh_bounds: AABB = local*source.mesh.get_aabb()
 			bounds = mesh_bounds if first else bounds.merge(mesh_bounds)

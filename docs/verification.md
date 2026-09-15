@@ -183,3 +183,35 @@ placement, size and readability with the normal launch. No shared service change
 The new body proportions, shoulder travel, timing, hologram framing and shield
 coverage during posture changes need headset judgment. No full limb collision,
 self-contact solver, camera/robot-head coupling or physical thrust/torque claim.
+
+## Visual sword and Mobile art pass
+
+- 1,504 automated checks pass (`artifacts/art-tests.log`): previous 1,397,
+  weapon module 39, actual weapon integration 34, exhaust/wake 34.
+  Actual-scene checks cover physical dock vs amplified hand, swaps without
+  shooting, fresh firing after return, hologram visibility, grip/UI/pause/
+  tracking/calibrated handoff, reset and zero sword damage. Exhaust checks
+  cover bounded history, world anchoring, fade, teleport/reset, pause/coast,
+  light suppression and boost-only cosmetic output without fabricated force.
+- Mobile/Vulkan rendered six-check replay passes (`artifacts/art-replay.log`).
+  Existing wall collision test still passes against the smaller backstop.
+- Art probe (`artifacts/art-render.log`) reports ART_RENDER_OK, sword=true,
+  renderer=mobile. Inspected cockpit captures in `artifacts/art-cockpit-*.png`;
+  `art-exterior.png` retains an outside view. These include the actual shared
+  scene in a 1600×1000 review viewport, not a generated illustration.
+- Isolated QWERTY OpenXR on Mobile/Vulkan initializes, calibrates and tracks both
+  controllers (`artifacts/art-xr-final.log`). Mirror attaches to tiled window
+  extent while runtime controls eye size. Stock session-stop/spatial-extension
+  teardown diagnostics remain; no shared Monado restart was performed.
+- Starfield license/source/hash recorded in `assets/sky/SOURCE.md` and
+  `THIRD_PARTY.md`. No franchise assets or publication.
+
+Physical behind-head Index tracking/reach, stereo visual quality and full
+Beyond-resolution frame pacing require the next user check. The small private
+OpenXR render target does not establish headset performance. Sword collision,
+physical plume forces and distant-colony traversal remain out of scope.
+# Final sky orientation check
+
+`artifacts/art-sun.png` and `artifacts/art-sun.log` verify the upward-looking
+Mobile render after correcting the source skybox pole orientations. Source PNGs
+remain unchanged; top/bottom faces rotate at runtime. No script/render errors.

@@ -1,6 +1,6 @@
 # Mech VR — M0a
 
-Runnable seated PCVR cockpit experiment in Godot 4.7.2, GL Compatibility.
+Runnable seated PCVR cockpit experiment in Godot 4.7.2, Mobile / Vulkan.
 Preset A only: cockpit-relative flight, independent tracked rifle/shield,
 finite incoming bolts, explicit arm/UI handoff, and a live cadence MFD.
 
@@ -8,7 +8,7 @@ finite incoming bolts, explicit arm/UI handoff, and a live cadence MFD.
 # From this checkout, using the installed Godot engine:
 ./scripts/run.sh                 # desktop, starts paused
 ./scripts/run.sh --xr            # native OpenXR, starts paused
-./scripts/test.sh                # 1,397 deterministic checks
+./scripts/test.sh                # 1,504 deterministic checks
 ./scripts/run-monado-qwerty.sh --smoke  # private simulated runtime
 ```
 
@@ -17,7 +17,13 @@ context, prefix rendered commands with `DISPLAY=:0 WAYLAND_DISPLAY=wayland-1`.
 A normal graphical terminal usually already has them. Never point the private
 smoke at the user's runtime socket or restart their VR services.
 
-**Next check: [grip and flight-pose comparison](docs/m0a-headset-test.md).**
+Hold the right grip, reach behind your head and press/release the trigger to
+switch rifle ↔ visual beam sword. Repeat the dock gesture to switch back.
+The sword has no collision/damage. A HUD cue identifies the dock and weapon.
+The art pass adds a CC0 starfield, exterior cylinder backdrop, warm sunlight,
+HDR glow, seven verniers, local exhaust lighting and a short world-space wake.
+
+**Next check: [sword dock and art-pass headset check](docs/m0a-headset-test.md).**
 Initial user feedback and the reattachment tradeoff are in
 [playtest notes](docs/playtest-notes.md).
 Read [verification and limits](docs/verification.md) for actual evidence. No

@@ -20,6 +20,10 @@ var hands: Array[MeshInstance3D] = []
 var pointers: Array[MeshInstance3D] = []
 var reticle: MeshInstance3D
 var flight_hud = preload("res://scripts/flight_hud.gd").new()
+var weapon = preload("res://scripts/weapon_switch.gd").new()
+var weapon_status := {"consume_trigger":false,"dock_near":false,"dock_ready":false}
+var gun_visuals: Array[Node3D] = []
+var trail = preload("res://scripts/exhaust_trail.gd").new()
 var robot = preload("res://scripts/robot_rig.gd").new()
 var hologram = preload("res://scripts/pose_hologram.gd").new()
 var paused := true
@@ -73,6 +77,10 @@ func _ready() -> void:
 	adapter.reset_requested.connect(_reset)
 	adapter.mark_requested.connect(_mark)
 	_build_cockpit()
+	gun_visuals.assign(arms[1].get_children())
+	weapon.setup_visual(arms[1])
+	add_child(trail)
+	trail.setup()
 	_build_panel()
 	body.add_child(flight_hud)
 	flight_hud.setup(world.targets)
@@ -94,7 +102,7 @@ func _ready() -> void:
 		slow_turn = false
 		snap = false
 		_apply_turn_settings()
-	log_event("startup", {"engine": Engine.get_version_info().string, "renderer": "gl_compatibility", "replay": replay, "world_scale": XRServer.world_scale,"physics_hz":Engine.physics_ticks_per_second,"cadence":world.cadence,"gain":str(model.position_gain),"arm_speed":model.arm_speed,"arm_acceleration":model.arm_acceleration,"arm_angular_speed":model.arm_angular_speed,"yaw_speed":model.yaw_speed,"pitch_speed":model.pitch_speed,"snap":snap,"fixed_fps":OS.get_cmdline_args().has("--fixed-fps")})
+	log_event("startup", {"engine": Engine.get_version_info().string, "renderer": RenderingServer.get_current_rendering_method(), "replay": replay, "world_scale": XRServer.world_scale,"physics_hz":Engine.physics_ticks_per_second,"cadence":world.cadence,"gain":str(model.position_gain),"arm_speed":model.arm_speed,"arm_acceleration":model.arm_acceleration,"arm_angular_speed":model.arm_angular_speed,"yaw_speed":model.yaw_speed,"pitch_speed":model.pitch_speed,"snap":snap,"fixed_fps":OS.get_cmdline_args().has("--fixed-fps")})
 	print("M0A_READY desktop=%s replay=%s; start paused, R calibrates, Esc resumes" % [not adapter.xr_active, replay])
 
 func box(parent: Node3D, size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
@@ -186,6 +194,11 @@ func _physics_process(dt: float) -> void:
 	var old_velocity: Vector3 = model.velocity
 	var mapped_sample: Dictionary = handles.step(sample,model,dt)
 	var result: Dictionary = model.step(mapped_sample,dt)
+	var weapon_eligible: bool = model.owners[1] == "ARM" and mapped_sample.get("valid_right",true) and (not handles.enabled or not handles.action_inhibited(1))
+	weapon_status = weapon.step(sample,weapon_eligible)
+	for mesh in gun_visuals: mesh.visible = not weapon.sword
+	if weapon.sword or weapon_status.consume_trigger: result.fire = false
+	if weapon_status.changed: log_event("weapon_switch",{"weapon":"sword" if weapon.sword else "gun"})
 	var commanded_acceleration: Vector3 = (model.velocity-old_velocity)/maxf(dt,.00001)
 	body.basis = result.body_basis
 	body.velocity = model.velocity
@@ -209,7 +222,8 @@ func _physics_process(dt: float) -> void:
 		var nearby: bool = hand_pose.origin.distance_to(handles.handles[i].origin) <= handles.CAPTURE_RADIUS
 		var grip_material: StandardMaterial3D = handle_visuals[i].get_child(0).material_override
 		grip_material.albedo_color = Color("83ffac") if hand_live[i] and nearby and not handles.grabbed[i] else (Color("ffd36b") if i else Color("3eaabd"))
-	robot.update_pose(dt,body.basis.inverse()*model.velocity,body.basis.inverse()*commanded_acceleration,arms,sample.head.basis,result.paused)
+	robot.update_pose(dt,body.basis.inverse()*model.velocity,body.basis.inverse()*commanded_acceleration,arms,sample.head.basis,result.paused,result.boost_active)
+	trail.update_trail(dt,robot.world_exhaust_origins(),model.velocity,robot.effect_strength,result.paused)
 	hologram.sync()
 	reset_blend = maxf(0,reset_blend-dt)
 	var muzzle := arms[1].global_transform * Transform3D(Basis.IDENTITY,Vector3(0,0,-2.7))
@@ -224,6 +238,8 @@ func _physics_process(dt: float) -> void:
 	reticle.global_position = world.aim_point(muzzle,shield)
 	reticle.visible = false
 	flight_hud.update_hud(body.global_transform,adapter.camera.global_transform,world.targets,reticle.global_position,model.velocity.length())
+	flight_hud.gun.visible = flight_hud.gun.visible and not weapon.sword
+	flight_hud.weapon_hint.text = ("DOCK / TRIGGER TO SWAP" if weapon_status.dock_ready else "DOCK / RELEASE TRIGGER") if weapon_status.dock_near else ("BEAM SWORD" if weapon.sword else "RIFLE")
 	var counts := Vector3i(world.target_hits,world.blocks,world.hits)
 	if counts != last_counts:
 		log_event("combat_result",{"targets":counts.x,"blocks":counts.y,"torso_hits":counts.z})
@@ -235,7 +251,7 @@ func _physics_process(dt: float) -> void:
 	_panel_input(sample,result)
 	_update_display(result,muzzle)
 	if frames % 9 == 0:
-		var row := {"t":elapsed,"position":str(body.position),"velocity":str(model.velocity),"head":str(sample.head),"left":str(sample.left),"right":str(sample.right),"owners":model.owners.duplicate(),"actual":str(model.arm_actual),"desired":str(model.arm_targets),"boost":model.boost,"brake":sample.brake,"handles":str(handles.handles),"grabbed":handles.grabbed.duplicate(),"regrab_mode":handles.mode,"grip_controls":handles.enabled,"commanded_acceleration":str(commanded_acceleration),"flight_preview":robot.posture_enabled,"posture_mode":robot.flight.mode,"chest":str(robot.chest.global_transform),"shoulder_slide":robot.rail_extension.duplicate(),"hits":world.hits,"blocks":world.blocks,"target_hits":world.target_hits}
+		var row := {"t":elapsed,"position":str(body.position),"velocity":str(model.velocity),"head":str(sample.head),"left":str(sample.left),"right":str(sample.right),"owners":model.owners.duplicate(),"actual":str(model.arm_actual),"desired":str(model.arm_targets),"boost":model.boost,"brake":sample.brake,"weapon":"sword" if weapon.sword else "gun","handles":str(handles.handles),"grabbed":handles.grabbed.duplicate(),"regrab_mode":handles.mode,"grip_controls":handles.enabled,"commanded_acceleration":str(commanded_acceleration),"flight_preview":robot.posture_enabled,"posture_mode":robot.flight.mode,"chest":str(robot.chest.global_transform),"shoulder_slide":robot.rail_extension.duplicate(),"hits":world.hits,"blocks":world.blocks,"target_hits":world.target_hits}
 		ring.append(row)
 		if ring.size() > 300: ring.pop_front()
 		if replay: trace.store_line(JSON.stringify(row))
@@ -269,6 +285,9 @@ func _panel_input(sample: Dictionary, result: Dictionary) -> void:
 		var fresh: bool = trigger > .55 and not menu_down[i] and pointer_was_active[i]
 		pointer_was_active[i] = active
 		menu_down[i] = trigger > .55 or not valid
+		if i==1 and weapon_status.consume_trigger:
+			menu_down[i] = true
+			continue
 		if uv.x < 0: continue
 		hovered = int(uv.y/100)
 		var clicked: bool = fresh if paused or handles.enabled else (result.click_left if i == 0 else result.click_right)
@@ -330,7 +349,7 @@ func _update_display(result: Dictionary, muzzle: Transform3D) -> void:
 		menu_labels[row].text = rows[row]
 		menu_labels[row].modulate = Color("7cffe0") if hovered == row and row >= 2 else Color.WHITE
 	if not paused:
-		display.text = "SPD %4.1f  BOOST %3.0f%%  %s%s\nL: %s\nR: %s\nHIT %s BLOCK %s TARGET %s  RANGE %.0fm\n%s" % [model.velocity.length(),model.boost*100,"PITCH" if result.attitude_mode else "VERTICAL"," / CENTER STICKS" if result.mode_neutral_required or result.movement_neutral_required else "",_owner_label(0),_owner_label(1),str(world.hits),str(world.blocks),str(world.target_hits),muzzle.origin.distance_to(reticle.global_position),"Release grip: park / UI. Squeeze nearby: grab" if handles.enabled else "B: arm / UI toggle. Release trigger after handoff."]
+		display.text = "SPD %4.1f  BOOST %3.0f%%  %s%s\nL: %s\nR: %s\nHIT %s BLOCK %s TARGET %s  RANGE %.0fm\n%s" % [model.velocity.length(),model.boost*100,"PITCH" if result.attitude_mode else "VERTICAL"," / CENTER STICKS" if result.mode_neutral_required or result.movement_neutral_required else "",_owner_label(0),_owner_label(1),str(world.hits),str(world.blocks),str(world.target_hits),muzzle.origin.distance_to(reticle.global_position),("SWORD / behind-head trigger: rifle" if weapon.sword else "RIFLE / behind-head trigger: sword") if handles.enabled else "B: arm / UI toggle. Release trigger after handoff."]
 
 func _owner_label(index: int) -> String:
 	if handles.enabled:
@@ -354,6 +373,8 @@ func _reset() -> void:
 	adapter.recenter()
 	model.reset()
 	robot.reset()
+	weapon.reset()
+	trail.reset()
 	handles.reset()
 	body.transform = Transform3D.IDENTITY
 	world.reset()

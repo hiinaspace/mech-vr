@@ -100,3 +100,33 @@ the previous independent miniature preview/actual toggle. Reset clears pose memo
 prioritizing endpoints, inferred chest facing and delayed lower-body response;
 they do not supply our thrust thresholds or cockpit model. The next user check
 is sustained boost/brake/strafe while holding the shield and rifle independently.
+
+## Visual sword and space art pass
+
+User reports shared chest facing sells the mobile-suit feel better, with some
+remaining wonkiness. Authorized a visual-only sword plus a restrained greybox
+art pass. Clarifications: outside the O'Neill cylinder; behind-head trigger
+switches both directions; cyan exhaust, pink sword and warm sun. No saber
+collision/damage, AI or additional gameplay gates in this pass.
+
+The switch uses the physical head/right-hand sample while the right arm owns
+control. The dock is yaw-relative and generous. Fresh trigger edges and consumed
+swap presses prevent firing, menu clicks or repeated swaps across handoff and
+tracking recovery. The same right equipment node drives sword, arm IK and
+hologram; only the rifle meshes and reticle change visibility. The blade is a
+5.7m primitive with bright core, translucent pink shell and one local light.
+
+A CC0-listed starfield cubemap and authored sun provide the far field. A primitive
+cylinder, end hubs, rings, three mirror wings and window strips provide medium
+field scale. The three training robots remain. The former huge flat wall/deck
+are reduced to a local platform and low backstop; the distant colony is visual,
+not a traversable habitat or new collision surface.
+
+Mobile/Vulkan replaces Compatibility for HDR glow; 2x MSAA is enabled. A material
+inspection caught Godot's unshaded path ignoring emission, so luminous meshes
+use emission-enabled per-pixel materials. HUD stays sparse and non-emissive.
+Seven backpack/torso/forearm/calf jets share the real rig and miniature, with two
+shadowless local exhaust lights. The world-space wake uses 96 pooled segments
+and fades over 2.8s. Normal coast/pause produce no new exhaust. Held boost at the
+speed cap gets a small cosmetic exhaust floor without altering physics or the
+posture solver's actual acceleration. Reset/large jumps clear wake history.

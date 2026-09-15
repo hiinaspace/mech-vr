@@ -30,7 +30,7 @@ func setup(body: Node3D) -> void:
 	camera = XRCamera3D.new()
 	camera.name = "Head"
 	camera.near = 0.04
-	camera.far = 1500.0
+	camera.far = 4000.0
 	origin.add_child(camera)
 	camera.current = true
 	for side in 2:

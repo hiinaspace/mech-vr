@@ -4,6 +4,7 @@ const INK := Color("8deacb")
 const AMBER := Color("ffce78")
 var attitude := Node3D.new()
 var readout: Label3D
+var weapon_hint: Label3D
 var contact_nodes: Array[Node3D] = []
 var contact_labels: Array[Label3D] = []
 var gun := Node3D.new()
@@ -50,6 +51,8 @@ func setup(contacts: Array[Dictionary]) -> void:
 	stroke(self,Vector3(.045,0,-4),Vector3(.13,0,-4))
 	stroke(self,Vector3(-.045,0,-4),Vector3(0,-.035,-4))
 	stroke(self,Vector3(0,-.035,-4),Vector3(.045,0,-4))
+	weapon_hint = caption(self,"RIFLE",Vector3(.62,-.38,-4),AMBER)
+	weapon_hint.font_size = 24
 	readout = caption(self,"",Vector3(0,.83,-4))
 	caption(self,"NAV / COLONY REF",Vector3(0,.96,-4))
 	for contact in contacts:

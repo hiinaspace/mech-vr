@@ -1,7 +1,7 @@
 # M0a seated headset test
 
 Initial user feedback is positive; see [playtest notes](playtest-notes.md).
-The dashboard, parked grip controls, and flight-pose miniature are ready for comparison.
+The sword dock and Mobile/Vulkan art pass are ready for headset comparison.
 
 Use sayu's normal Beyond/Index VR setup. No shared service restart is part of
 this handoff. Sit facing forward with controllers in a comfortable neutral
@@ -82,3 +82,27 @@ zero along colony -Z. Check the amber GUN mark against impacts while moving the
 right arm and obstructing it with the shield. Amber TRN-H diamonds identify the
 three training-hostile mechs and show current range. Symbols overlay geometry;
 they do not imply clear line of fire. Report stereo discomfort or clutter.
+
+
+Sword/art follow-up (Mobile renderer):
+
+1. Hold the right cockpit control, release the trigger, reach your physical
+   right hand behind the headset, then press once. The generous dock uses head
+   yaw, not the amplified robot arm: ±65 cm sideways, -40/+55 cm vertically,
+   5–70 cm behind the head. Keep gripping so the robot arm remains controlled.
+2. Bring the hand forward and wave the pink sword through a target. It must
+   remain purely visual: no damage/contact. The gun mesh and GUN reticle hide;
+   the hologram shows the same sword. Regular trigger presses do not shoot or
+   put away the sword. Repeat the behind-head gesture to restore the rifle;
+   release the swap trigger before a fresh firing press.
+3. Try a held trigger while entering the dock, dropping grip, pausing and
+   recovering tracking. These must not create an unintended swap/shot/UI click.
+   Report whether the cue/reach is usable with actual behind-head tracking.
+4. Boost/strafe/brake while looking at the gun/shield and miniature, then look
+   back along your path. Cyan verniers and local light should be visible; wake
+   fades in 2.8 seconds. Held boost retains a cosmetic plume at capped speed;
+   ordinary coast emits none. Reset clears wake history.
+5. Check starfield seams, colony silhouette, sun glare and sword/exhaust bloom
+   for readability in headset and mirror recording. Check the desktop mirror
+   still fills a resized tile. Report frame pacing or stereo artifacts: the
+   private 320×240 OpenXR preflight is not full-resolution performance evidence.

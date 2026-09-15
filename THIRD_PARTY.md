@@ -24,3 +24,13 @@ hand rig, or general pointer framework to justify importing the complete addon.
   identifies Monado revision `5b133708c18aa16d17a976402daa7b4349aff912`.
 
 Original Industrial Petting Unity source was not accessed or used.
+
+## Starfield art pass
+
+`assets/sky/space_*.png`: **Space skybox**, kurtk84, submitted by Calinou.
+[Source listing, CC0](https://opengameart.org/content/space-skybox-1).
+The archive additionally includes WTFPL v2 text, preserved as `assets/sky/space.txt`.
+Source URL, retrieval date and archive SHA-256 are in `assets/sky/SOURCE.md`.
+No image pixels were modified; the runtime shader adjusts brightness and adds
+an authored sun. Cylinder, mirrors, nozzles, sword, trails and shaders are
+repo-authored primitives/code; no Gundam franchise assets were imported.

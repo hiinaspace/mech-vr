@@ -29,21 +29,12 @@ func setup() -> void:
 	if _built:
 		return
 	_built = true
-	var environment := WorldEnvironment.new()
-	var settings := Environment.new()
-	settings.background_mode = Environment.BG_COLOR
-	settings.background_color = Color(0.025, 0.04, 0.065)
-	settings.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	settings.ambient_light_color = Color(0.65, 0.73, 0.85)
-	settings.ambient_light_energy = 0.65
-	environment.environment = settings
-	add_child(environment)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-35, -25, 0)
-	sun.light_energy = 1.0
-	add_child(sun)
-	_obstacle(Vector3(0, -19, -80), Vector3(400, 2, 420), Color(0.13, 0.17, 0.21))
-	_obstacle(Vector3(0, 30, -245), Vector3(400, 100, 4), Color(0.2, 0.26, 0.31))
+	var dressing := preload("res://scripts/space_dressing.gd").new()
+	add_child(dressing)
+	dressing.setup()
+	# Local practice deck and low backstop; the colony beyond is decorative.
+	_obstacle(Vector3(0,-19,-35),Vector3(90,2,110),Color("293d4c"))
+	_obstacle(Vector3(0,-8,-245),Vector3(80,16,4),Color("354956"))
 	# Docking truss: individual bars also obstruct rifle rays and suit movement.
 	for x in [-42.0, 42.0]:
 		_obstacle(Vector3(x, 0, -35), Vector3(1, 26, 1), Color(0.45, 0.47, 0.5))
@@ -161,7 +152,7 @@ func fire(muzzle: Transform3D, shield_world: Transform3D) -> Vector3:
 	var endpoint: Vector3 = result.point
 	var distance := muzzle.origin.distance_to(endpoint)
 	if distance > 0.001:
-		var beam := _box((muzzle.origin + endpoint) * 0.5, Vector3(0.035, 0.035, distance), Color(0.3, 0.9, 1), true)
+		var beam := _box((muzzle.origin + endpoint) * 0.5, Vector3(0.09, 0.09, distance), Color(0.3, 0.9, 1), true)
 		beam.quaternion = Quaternion(Vector3.FORWARD, (endpoint - muzzle.origin).normalized())
 		_flashes.append({"mesh": beam, "life": 0.075})
 	return endpoint
@@ -253,7 +244,10 @@ func _box(center: Vector3, size: Vector3, color: Color, emissive: bool = false) 
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
 	if emissive:
-		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		material.emission_enabled = true
+		material.emission = color
+		material.emission_energy_multiplier = 3.0
 	instance.material_override = material
 	instance.position = center
 	add_child(instance)
