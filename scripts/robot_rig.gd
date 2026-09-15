@@ -74,7 +74,7 @@ func setup() -> void:
 		add_child(light)
 		jet_lights.append(light)
 
-func update_pose(dt: float, velocity: Vector3, acceleration: Vector3, equipment: Array[Node3D], gaze: Basis, paused := false, boost_active := false) -> void:
+func update_pose(dt: float, velocity: Vector3, acceleration: Vector3, equipment: Array[Node3D], gaze: Basis, paused := false, boost_active := false, main_throttle := 0.0) -> void:
 	flight.step(dt,velocity if posture_enabled else Vector3.ZERO,acceleration if posture_enabled else Vector3.ZERO,paused)
 	var heading := Vector3.ZERO
 	# Hands well in front of the neck contribute; close/behind hands cannot spin the chest.
@@ -131,13 +131,18 @@ func update_pose(dt: float, velocity: Vector3, acceleration: Vector3, equipment:
 	var effect_acceleration := Vector3.ZERO if paused else acceleration
 	if not paused and boost_active and velocity.length()>.4 and acceleration.length()<.2:
 		effect_acceleration = velocity.normalized()*6.0
+	# Sustained cruise engines keep a larger authored plume even at commanded
+	# speed. Actual acceleration above still drives posture and force telemetry.
+	var main_level := 0.0 if paused else clampf(main_throttle,0.0,1.0)
+	if main_level > .01:
+		effect_acceleration += Vector3.FORWARD * (12.0 * main_level)
 	effect_strength = effect_acceleration.length()
 	var effect_main := maxf(effect_acceleration.dot(orientation.y),0.0)
 	exhaust_origins.clear()
 	for i in 2:
 		var nozzle := torso.position+orientation*Vector3(-1.25 if i==0 else 1.25,.8,2.35)
 		exhaust_origins.append(nozzle)
-		jet(i,nozzle,-orientation.y,effect_main,.8,5.8)
+		jet(i,nozzle,-orientation.y,maxf(effect_main,main_level*36.0),.8+main_level*.65,5.8+main_level*8.0)
 	var residual: Vector3 = effect_acceleration-orientation.y*effect_main
 	var nozzle := torso.position+orientation*Vector3(0,3,2.1)
 	jet(2,nozzle,-residual.normalized() if residual.length()>.2 else orientation.z,residual.length(),.48,3.8)

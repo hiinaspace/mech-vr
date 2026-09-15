@@ -8,7 +8,7 @@ finite incoming bolts, explicit arm/UI handoff, and a live cadence MFD.
 # From this checkout, using the installed Godot engine:
 ./scripts/run.sh                 # desktop, starts paused
 ./scripts/run.sh --xr            # native OpenXR, starts paused
-./scripts/test.sh                # 1,504 deterministic checks
+./scripts/test.sh                # 1,638 deterministic / actual-scene checks
 ./scripts/run-monado-qwerty.sh --smoke  # private simulated runtime
 ```
 
@@ -18,12 +18,13 @@ A normal graphical terminal usually already has them. Never point the private
 smoke at the user's runtime socket or restart their VR services.
 
 Hold the right grip, reach behind your head and press/release the trigger to
-switch rifle ↔ visual beam sword. Repeat the dock gesture to switch back.
-The sword has no collision/damage. A HUD cue identifies the dock and weapon.
+switch rifle ↔ beam sword. Repeat the dock gesture to switch back.
+Swept sword contacts and traveling rifle pulses produce hit confirmations;
+targets have no health/destruction state. A HUD cue identifies the dock and weapon.
 The art pass adds a CC0 starfield, exterior cylinder backdrop, warm sunlight,
 HDR glow, seven verniers, local exhaust lighting and a short world-space wake.
 
-**Next check: [sword dock and art-pass headset check](docs/m0a-headset-test.md).**
+**Next check: [hybrid flight and combat headset check](docs/m0a-headset-test.md).**
 Initial user feedback and the reattachment tradeoff are in
 [playtest notes](docs/playtest-notes.md).
 Read [verification and limits](docs/verification.md) for actual evidence. No
@@ -32,6 +33,22 @@ complete physical timing/binding validation or A/B/C preference result is claime
 Default control: hold grip near a cockpit handle to grab it; release to park
 the handle and robot arm while reaching for UI. The live MFD compares FREE and
 CALIBRATED ANGLE regrabs, the previous B-button mode, and THRUST/UPRIGHT shared body posture.
+
+The cyan center stick accepts either free hand: squeeze grip, displace for XYZ
+velocity, tilt/twist for pitch/yaw/roll rates, then release to center. Its home
+is lower than the arm handles so it clears the dashboard. The amber left throttle
+slides forward for persistent robot-forward cruise, up to 90 m/s with a ramp.
+Release and regrab the arm handle to use shield and rifle during cruise. Pull
+back to OFF; the brake button also closes the throttle and prevents relaunch.
+Head movement never steers cruise. Pause or lost left tracking closes throttle.
+
+Bring the held right gun controller within roughly 42 cm of the head for the
+4x circular scope; lower it past 50 cm to hide it. Only the visible scope renders
+its 512² extra camera. Nine target bots include four moving contacts, spread to
+about 1.8 km; rifle pulses travel at 240 m/s and need lead. The three outer
+emitters wake within 260 m. Sword contacts, target hits and shield blocks give
+short bursts without health, destruction or physical blade resistance.
+
 The exterior and hologram share one rig; [space-body posture notes](docs/research/space-body-posture.md)
 cover the Echo/Space Junkies references. See [UNDERDOGS research](docs/research/underdogs-controls.md) for design references.
 
@@ -51,4 +68,6 @@ are committed. See [provenance](THIRD_PARTY.md) for permitted reference reuse.
 
 The approved [MVP plan](docs/mvp-plan.md) and
 [implementation brief](docs/IMPLEMENTATION_BRIEF.md) define the scope. B/C,
-saber, roll/torque, networking, tutorial and publication await later gates.
+full melee physics, torque simulation, networking, tutorial and publication await later gates.
+The subsequent user-authorized experiments add parked controls, shared posture,
+visual art, six-axis rate flight, throttle, traveling shots, sword hit feedback and scope.

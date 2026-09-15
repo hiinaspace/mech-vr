@@ -80,7 +80,7 @@ HUD follow-up: look around independently, then pitch/yaw the cockpit. The green
 forward datum stays cockpit-fixed; the horizon/ladder uses colony up and heading
 zero along colony -Z. Check the amber GUN mark against impacts while moving the
 right arm and obstructing it with the shield. Amber TRN-H diamonds identify the
-three training-hostile mechs and show current range. Symbols overlay geometry;
+training-hostile mechs and show current range. Symbols overlay geometry;
 they do not imply clear line of fire. Report stereo discomfort or clutter.
 
 
@@ -91,7 +91,7 @@ Sword/art follow-up (Mobile renderer):
    yaw, not the amplified robot arm: ±65 cm sideways, -40/+55 cm vertically,
    5–70 cm behind the head. Keep gripping so the robot arm remains controlled.
 2. Bring the hand forward and wave the pink sword through a target. It must
-   remain purely visual: no damage/contact. The gun mesh and GUN reticle hide;
+   now produce contact flashes without health/damage tracking. The gun mesh and GUN reticle hide;
    the hologram shows the same sword. Regular trigger presses do not shoot or
    put away the sword. Repeat the behind-head gesture to restore the rifle;
    release the swap trigger before a fresh firing press.
@@ -106,3 +106,32 @@ Sword/art follow-up (Mobile renderer):
    for readability in headset and mirror recording. Check the desktop mirror
    still fills a resized tile. Report frame pacing or stereo artifacts: the
    private 320×240 OpenXR preflight is not full-resolution performance evidence.
+
+
+Hybrid flight/combat follow-up:
+
+1. Release one arm handle, reach the center flight stick and squeeze grip.
+   Displace it sideways/up-down/forward-back for XYZ velocity; tilt/twist for
+   pitch/yaw/roll rates. Release to center commands. Try either hand, then regrab
+   the parked weapon handle. Check that the other arm remains independent and
+   pilot-trigger presses never become firing or panel clicks.
+2. Grab the left throttle and slide it forward. Release it: forward cruise
+   persists along the robot heading while looking around does not steer.
+   Pull back to OFF before local maneuvering; the brake button also cancels
+   cruise. Check the acceleration ramp, longer main-engine plume and stopping
+   distance before attempting a close station pass.
+3. Travel toward distant training markers and around the colony silhouette.
+   Fire at static and moving bots; the bright pulse must travel to the target
+   before the hit flash. The reticle gives current barrel alignment, not lead
+   or an automatic hit. Test a moving target with deliberate lead.
+4. Raise the held right controller near your head with the rifle equipped.
+   The circular screen above it shows 4x barrel view; lower it, park it, or
+   select sword to hide it. Check readability, perceived aim agreement and
+   frame timing while the extra camera is active.
+5. Slash through a near target with the upright-grip sword and check the burst.
+   Hold it intersecting: repeated stationary hits should not accumulate. Move
+   out and slash again. No blade resistance or target destruction is modeled.
+6. Place the shield into the brighter incoming bolts from the emitters. Look
+   for a distinct shield-contact flash/deflection; moving the shield aside
+   permits torso hits. Pause/reset and simulated tracking loss must cancel
+   held pilot inputs and prevent stale weapon/scope actions on return.

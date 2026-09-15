@@ -1,7 +1,7 @@
 class_name WeaponSwitch
 extends RefCounted
 ## Weapon selection uses physical cockpit-local head/hand poses, never amplified
-## robot arm poses. This module creates visual geometry only.
+## robot arm poses. Blade endpoints allow a separate swept contact query.
 const TRIGGER_PRESS := 0.55
 const TRIGGER_RELEASE := 0.30
 const DOCK_HALF_WIDTH := 0.65
@@ -9,6 +9,10 @@ const DOCK_BOTTOM := -0.40
 const DOCK_TOP := 0.55
 const DOCK_FRONT := 0.05
 const DOCK_BACK := 0.70
+
+const BLADE_BASE := Vector3(0,.65,-.15)
+const BLADE_TIP := Vector3(0,6.35,-.15)
+const BLADE_RADIUS := .16
 
 var sword := false
 var return_anywhere := false
@@ -71,11 +75,11 @@ func setup_visual(parent: Node3D) -> Node3D:
 	visual_root = Node3D.new()
 	visual_root.name = "BeamSword"
 	parent.add_child(visual_root)
-	_box(Vector3(.46,.55,1.1), Vector3(0,0,-.4), Color("667184"), 0.0)
-	_box(Vector3(.95,.20,.25), Vector3(0,0,-.95), Color("db9cb9"), 0.0)
+	_box(Vector3(.46,1.1,.55), Vector3(0,.10,-.15), Color("667184"), 0.0)
+	_box(Vector3(.95,.20,.55), Vector3(0,.60,-.15), Color("db9cb9"), 0.0)
 	# Thick emissive shell and a white core remain legible without postprocessing.
-	_box(Vector3(.22,.30,5.7), Vector3(0,0,-3.90), Color(1,.08,.45,.22), 4.0)
-	_box(Vector3(.095,.15,5.50), Vector3(0,0,-3.80), Color("ffe7fb"), 7.0)
+	_box(Vector3(.22,5.7,.30), Vector3(0,3.50,-.15), Color(1,.08,.45,.22), 4.0)
+	_box(Vector3(.095,5.50,.15), Vector3(0,3.50,-.15), Color("ffe7fb"), 7.0)
 	var light := OmniLight3D.new()
 	light.name = "SwordGlow"
 	light.light_color = Color("ff4baf")
@@ -83,10 +87,14 @@ func setup_visual(parent: Node3D) -> Node3D:
 	light.omni_range = 9.0
 	light.omni_attenuation = 1.4
 	light.shadow_enabled = false
-	light.position = Vector3(0,0,-1.4)
+	light.position = Vector3(0,1.4,-.15)
 	visual_root.add_child(light)
 	visual_root.visible = sword
 	return visual_root
+
+func blade_segment() -> Dictionary:
+	var frame := visual_root.global_transform if is_instance_valid(visual_root) else Transform3D.IDENTITY
+	return {"base": frame * BLADE_BASE, "tip": frame * BLADE_TIP, "radius": BLADE_RADIUS}
 
 func _box(size: Vector3, position: Vector3, color: Color, emission: float) -> void:
 	var instance := MeshInstance3D.new()

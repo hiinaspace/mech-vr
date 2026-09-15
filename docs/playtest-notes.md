@@ -130,3 +130,19 @@ shadowless local exhaust lights. The world-space wake uses 96 pooled segments
 and fades over 2.8s. Normal coast/pause produce no new exhaust. Held boost at the
 speed cap gets a small cosmetic exhaust floor without altering physics or the
 posture solver's actual acceleration. Reset/large jumps clear wake history.
+
+
+## Hybrid flight and first combat feedback pass
+
+User reports the sword switch feels plausible and the art pass sells the look.
+The next authorized greybox questions are sustained travel versus local
+maneuvering, hand ownership across physical controls, visible shot travel and
+melee/shield feedback, and a near-head zoom view for a larger rifle.
+
+Clarified choices: center stick is six controllable axes (XYZ displacement and
+pitch/yaw/roll rate), spring-return when released; persistent left throttle
+follows robot heading so looking around during cruise is independent; 4x scope
+is a circular screen above the held right cockpit controller. Existing arm
+thumbstick flight remains available. This explicitly expands the initial M0a
+plan's roll, handle, projectile and sword-contact deferrals, without authorizing
+full melee physics, health systems or a broader game progression.

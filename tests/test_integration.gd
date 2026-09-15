@@ -122,7 +122,7 @@ func run() -> void:
 	release()
 	press()
 	check(scene.world.last_shot_kind != "integration_sentinel", "Fresh press after reattachment fires actual range weapon")
-	var muzzle: Transform3D = scene.arms[1].global_transform * Transform3D(Basis.IDENTITY, Vector3(0, 0, -2.7))
+	var muzzle: Transform3D = scene.rifle.muzzle_transform()
 	var shield: Transform3D = scene.arms[0].global_transform
 	var fired: Vector3 = scene.world.fire(muzzle, shield)
 	check(fired.distance_to(scene.reticle.global_position) < .001, "Scene reticle agrees with actual muzzle fire result")

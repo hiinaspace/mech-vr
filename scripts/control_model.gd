@@ -18,6 +18,10 @@ var yaw := 0.0
 var pitch := 0.0
 var yaw_rate := 0.0
 var pitch_rate := 0.0
+var roll_rate := 0.0
+var body_basis := Basis.IDENTITY
+var advanced_attitude := false
+var main_throttle := 0.0
 var boost := 1.0
 var owners: Array[String] = ["ARM", "ARM"]
 var arm_targets: Array[Transform3D] = []
@@ -56,6 +60,10 @@ func reset() -> void:
 	yaw_rate = 0.0
 	pitch_rate = 0.0
 	boost = 1.0
+	roll_rate = 0.0
+	body_basis = Basis.IDENTITY
+	advanced_attitude = false
+	main_throttle = 0.0
 	attitude_mode = false
 	mode_neutral_required = false
 	movement_neutral_required = false
@@ -146,6 +154,8 @@ func step(sample: Dictionary, dt: float) -> Dictionary:
 	var ui: Array[bool] = [sample.get("ui_left", false), sample.get("ui_right", false)]
 	var toggle := bool(sample.get("mode_toggle", false))
 	if paused:
+		main_throttle = 0.0
+		roll_rate = 0.0
 		for i in 2:
 			_hold(i, "HOLD")
 			yaw_rate = 0.0
@@ -213,30 +223,53 @@ func step(sample: Dictionary, dt: float) -> Dictionary:
 		if absf(vertical) < 0.15 and absf(yaw_input) < 0.15:
 			mode_neutral_required = false
 		vertical = 0.0
+	var pilot_rotation: Vector3 = sample.get("pilot_rotation", Vector3.ZERO)
+	if movement_neutral_required: pilot_rotation = Vector3.ZERO
+	if not pilot_rotation.is_zero_approx(): advanced_attitude = true
 	var desired_pitch := vertical * pitch_speed if attitude_mode else 0.0
+	desired_pitch += pilot_rotation.x * deg_to_rad(35.0)
+	var old_yaw := yaw
 	if snap_yaw:
-		yaw_rate = 0.0
+		yaw_rate = move_toward(yaw_rate, pilot_rotation.y * deg_to_rad(45.0), deg_to_rad(150.0) * dt)
 		if absf(yaw_input) < 0.15:
 			_snap_ready = true
 		elif absf(yaw_input) > 0.7 and _snap_ready:
 			yaw = wrapf(yaw + signf(yaw_input) * snap_angle, -PI, PI)
 			_snap_ready = false
 	else:
-		yaw_rate = move_toward(yaw_rate, yaw_input * yaw_speed, deg_to_rad(150.0) * dt)
+		yaw_rate = move_toward(yaw_rate, (yaw_input * yaw_speed + pilot_rotation.y * deg_to_rad(45.0)), deg_to_rad(150.0) * dt)
 	pitch_rate = move_toward(pitch_rate, desired_pitch, deg_to_rad(100.0) * dt)
 	yaw = wrapf(yaw + yaw_rate * dt, -PI, PI)
-	pitch = clampf(pitch + pitch_rate * dt, deg_to_rad(-75), deg_to_rad(75))
-	if absf(pitch) >= deg_to_rad(75) and signf(pitch_rate) == signf(pitch):
+	pitch = pitch + pitch_rate * dt if advanced_attitude else clampf(pitch + pitch_rate * dt, deg_to_rad(-75), deg_to_rad(75))
+	if not advanced_attitude and absf(pitch) >= deg_to_rad(75) and signf(pitch_rate) == signf(pitch):
 		pitch_rate = 0.0
+	roll_rate = move_toward(roll_rate, pilot_rotation.z * deg_to_rad(45.0), deg_to_rad(150.0) * dt)
+	if advanced_attitude:
+		# Increment local rotation without Euler reconstruction: stable through roll/poles.
+		var rates := Vector3(pitch_rate * dt, wrapf(yaw - old_yaw, -PI, PI), roll_rate * dt)
+		if rates.length() > 0.000001:
+			body_basis = (body_basis * Basis(Quaternion(rates.normalized(), rates.length()))).orthonormalized()
+		var angles := body_basis.get_euler()
+		yaw = angles.y
+		pitch = angles.x
+	else:
+		body_basis = Basis.from_euler(Vector3(pitch, yaw, 0))
 	if not attitude_mode:
 		move.y += vertical
+	move += sample.get("pilot_move", Vector3.ZERO)
 	move = move.limit_length(1.0)
-	var basis := Basis.from_euler(Vector3(pitch, yaw, 0))
+	var basis := body_basis
 	var desired_velocity := basis * move * (30.0 if boosting else 12.0)
 	var acceleration := 30.0 if boosting else 12.0
 	if move.is_zero_approx():
 		acceleration = 8.0
+	var requested_throttle := clampf(float(sample.get("main_throttle", 0.0)), 0.0, 1.0)
+	main_throttle = move_toward(main_throttle, requested_throttle, dt * 0.65)
+	if main_throttle > 0.0:
+		desired_velocity += -basis.z * main_throttle * 90.0
+		acceleration = 20.0 + main_throttle * 22.0
 	if brake:
+		main_throttle = 0.0
 		desired_velocity = Vector3.ZERO
 		acceleration = 45.0
 	velocity = velocity.move_toward(desired_velocity, acceleration * dt)
@@ -252,5 +285,7 @@ func _finish_result(result: Dictionary) -> Dictionary:
 	result["movement_neutral_required"] = movement_neutral_required
 	result["yaw_rate"] = yaw_rate
 	result["pitch_rate"] = pitch_rate
-	result["body_basis"] = Basis.from_euler(Vector3(pitch, yaw, 0))
+	result["body_basis"] = body_basis
+	result["roll_rate"] = roll_rate
+	result["main_throttle"] = main_throttle
 	return result

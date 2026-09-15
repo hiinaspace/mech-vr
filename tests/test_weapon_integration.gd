@@ -9,6 +9,7 @@ var checks := 0
 var failures := 0
 var previous: PackedByteArray
 var had_settings := false
+var shots_before := 0
 func check(value: bool, caption: String) -> void:
 	checks += 1
 	if not value:
@@ -33,7 +34,7 @@ func capture() -> void:
 	input.current.right_grip = 1.0
 	step(2)
 func no_shot(caption: String) -> void:
-	check(scene.world.last_shot_kind == "sentinel",caption)
+	check(scene.world.shots_fired == shots_before,caption)
 func run() -> void:
 	had_settings = FileAccess.file_exists("user://m0a.cfg")
 	if had_settings: previous = FileAccess.get_file_as_bytes("user://m0a.cfg")
@@ -60,6 +61,7 @@ func run() -> void:
 	capture()
 	check(scene.handles.grabbed[0] and scene.handles.grabbed[1],"Both physical grips capture")
 	scene.world.last_shot_kind = "sentinel"
+	shots_before = scene.world.shots_fired
 	dock()
 	trigger(0.0)
 	check(scene.weapon_status.dock_ready,"Physical controller reaches behind-head dock")
@@ -79,13 +81,9 @@ func run() -> void:
 	trigger(1.0)
 	check(scene.weapon.sword,"Normal forward trigger leaves sword selected")
 	no_shot("Fresh forward sword press cannot fire hidden rifle")
-	var target_hits: int = scene.world.target_hits
-	# Put the real visual blade through a target volume; this should have no
-	# damage side effect, independently of whether a physical input can reach it.
-	scene.arms[1].global_position = scene.world.targets[0].hud_position+Vector3(0,0,3)
-	scene.hologram.sync()
-	await physics_frame
-	check(scene.world.target_hits == target_hits,"Sword intersection carries no collision damage")
+	var blade: Dictionary = scene.weapon.blade_segment()
+	check((blade.tip-blade.base).normalized().dot(scene.arms[1].global_basis.y.normalized())>.99,"Sword extends from fist grip axis instead of rifle bore")
+
 	dock()
 	trigger(0.0)
 	trigger(1.0)
@@ -101,6 +99,7 @@ func run() -> void:
 	trigger(1.0)
 	check(scene.world.last_shot_kind != "sentinel","Fresh forward rifle press fires after real release")
 	scene.world.last_shot_kind = "sentinel"
+	shots_before = scene.world.shots_fired
 	for state in ["released_grip", "tracking", "paused"]:
 		trigger(0.0)
 		dock()

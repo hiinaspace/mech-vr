@@ -4,7 +4,10 @@ extends Node3D
 
 const SHIELD_HALF := Vector3(2.0, 3.0, 0.2)
 const TORSO_HALF := Vector3(1.5, 3.0, 1.5)
-const MAX_RANGE := 400.0
+const MAX_RANGE := 2600.0
+const PLAYER_SPEED := 240.0
+const MAX_PROJECTILES := 96
+const MAX_EFFECTS := 120
 const BOLT_SPEED := 40.0
 const TELEGRAPH_TIME := 0.5
 
@@ -12,6 +15,7 @@ const TELEGRAPH_TIME := 0.5
 var hits: int = 0
 var blocks: int = 0
 var target_hits: int = 0
+var shots_fired: int = 0
 var emitter_position := Vector3(0, 0, -60)
 var telegraphing: bool = false
 var last_shot_kind: String = "none"
@@ -24,6 +28,13 @@ var _until_shot: float = 2.5
 var _locked_target := Vector3.ZERO
 var _emitter: MeshInstance3D
 var _built := false
+var pulses: Array[Dictionary] = []
+var emitters: Array[Dictionary] = []
+var _time := 0.0
+var _sword_valid := false
+var _sword_base := Vector3.ZERO
+var _sword_tip := Vector3.ZERO
+var _sword_contacts: Array[int] = []
 
 func setup() -> void:
 	if _built:
@@ -49,6 +60,18 @@ func setup() -> void:
 	_add_target(Vector3(-18, -7, -60), 10.0, "60 m / 10 m")
 	_add_target(Vector3(0, -5, -120), 14.0, "120 m / 14 m")
 	_add_target(Vector3(24, -3, -200), 18.0, "200 m / 18 m MECH")
+	for entry in [
+		[Vector3(-180, 60, -430), 22.0, Vector3(35, 15, 0)],
+		[Vector3(170, 90, -650), 24.0, Vector3.ZERO],
+		[Vector3(-550, 190, -900), 28.0, Vector3(0, 35, 55)],
+		[Vector3(400, -70, -1100), 28.0, Vector3(70, 0, 0)],
+		[Vector3(-750, 350, -1500), 32.0, Vector3.ZERO],
+		[Vector3(250, 420, -1750), 32.0, Vector3(65, 25, 0)]]:
+		_add_target(entry[0], entry[1], "OUTER RANGE")
+		targets.back().motion = entry[2]
+	for origin in [Vector3(-110, 45, -350), Vector3(200, 100, -700), Vector3(-580, 180, -1100)]:
+		var turret := _box(origin, Vector3(5, 5, 8), Color(1, .24, .07), true)
+		emitters.append({"position": origin, "mesh": turret, "timer": 4.5 + emitters.size(), "locked": Vector3.ZERO})
 	_emitter = _box(emitter_position, Vector3(1.4, 1.4, 1.4), Color(1, 0.2, 0.12), true)
 	_label("INCOMING / 60 m", emitter_position + Vector3(0, 4, 0), 0.025)
 	for marker in [Vector3(-12, -17.9, -25), Vector3(12, -17.9, -45)]:
@@ -69,14 +92,41 @@ func _add_target(center: Vector3, height: float, _caption: String) -> void:
 		var position_world: Vector3 = center + part[0]
 		var size: Vector3 = part[1]
 		var mesh := _box(position_world, size, color)
-		_static_box(position_world, size)
-		parts.append({"transform": Transform3D(Basis.IDENTITY, position_world), "half": size * 0.5, "mesh": mesh})
-	targets.append({"hud_position": center + Vector3(0,height*.75,0), "parts": parts, "hits": 0, "flash": 0.0})
+		var body := _static_box(position_world, size)
+		parts.append({"transform": Transform3D(Basis.IDENTITY, position_world), "half": size * 0.5, "mesh": mesh, "body": body, "local": part[0]})
+	targets.append({"center": center, "height": height, "motion": Vector3.ZERO, "hud_position": center + Vector3(0,height*.75,0), "parts": parts, "hits": 0, "flash": 0.0})
 	# Contact identity/range now lives in the 3D HUD.
 
 func tick(dt: float, body_transform: Transform3D, shield_world: Transform3D, torso_half := TORSO_HALF) -> void:
 	if dt <= 0:
 		return
+	for index in range(_flashes.size() - 1, -1, -1):
+		_flashes[index].life -= dt
+		var flash: Dictionary = _flashes[index]
+		flash.mesh.position += flash.get("velocity", Vector3.ZERO) * dt
+		flash.mesh.scale = Vector3.ONE * maxf(.05, flash.life / flash.get("duration", .5))
+		if _flashes[index].life <= 0:
+			_flashes[index].mesh.queue_free()
+			_flashes.remove_at(index)
+
+	_time += dt
+	_update_targets()
+	_tick_pulses(dt, shield_world)
+	for emitter in emitters:
+		# Outer turrets wake only within useful interception range.
+		if emitter.position.distance_to(body_transform.origin) > 260.0:
+			emitter.timer = 4.0
+			emitter.mesh.scale = Vector3.ONE
+			continue
+		var outer_delay: float = maxf(0.0, emitter.timer)
+		emitter.timer -= dt
+		if outer_delay > TELEGRAPH_TIME:
+			emitter.locked = body_transform.origin
+		emitter.mesh.scale = Vector3.ONE * (1.5 if emitter.timer <= TELEGRAPH_TIME else 1.0)
+		if emitter.timer <= 0:
+			_spawn_bolt(emitter.locked, emitter.position)
+			bolts.back().delay = minf(outer_delay, dt)
+			emitter.timer += 4.0
 	var event_offset := _until_shot
 	_until_shot -= dt
 	if not telegraphing and _until_shot <= TELEGRAPH_TIME:
@@ -106,10 +156,12 @@ func tick(dt: float, body_transform: Transform3D, shield_world: Transform3D, tor
 		if shield_fraction >= 0 and (body_fraction < 0 or shield_fraction <= body_fraction):
 			blocks += 1
 			last_impact = old.lerp(next, shield_fraction)
+			_burst(last_impact, Color(.3, .85, 1), true)
 			_remove_bolt(index)
 		elif body_fraction >= 0:
 			hits += 1
 			last_impact = old.lerp(next, body_fraction)
+			_burst(last_impact, Color(1, .35, .08))
 			_remove_bolt(index)
 		else:
 			bolt.position = next
@@ -121,19 +173,16 @@ func tick(dt: float, body_transform: Transform3D, shield_world: Transform3D, tor
 		target.flash = maxf(0, target.flash - dt)
 		for part in target.parts:
 			part.mesh.material_override.albedo_color = Color(1, 0.85, 0.15) if target.flash > 0 else Color(0.3, 0.75, 0.7)
-	for index in range(_flashes.size() - 1, -1, -1):
-		_flashes[index].life -= dt
-		if _flashes[index].life <= 0:
-			_flashes[index].mesh.queue_free()
-			_flashes.remove_at(index)
 
-func _spawn_bolt(destination: Vector3) -> void:
-	var mesh := _box(emitter_position, Vector3(0.3, 0.3, 1.2), Color(1, 0.2, 0.05), true)
-	var direction := (destination - emitter_position).normalized()
+func _spawn_bolt(destination: Vector3, origin := emitter_position) -> void:
+	if bolts.size() >= MAX_PROJECTILES:
+		_remove_bolt(0)
+	var mesh := _box(origin, Vector3(0.55, 0.55, 5.0), Color(1, 0.2, 0.05), true)
+	var direction := (destination - origin).normalized()
 	if direction.length_squared() < 0.001:
 		direction = Vector3.BACK
 	mesh.quaternion = Quaternion(Vector3.FORWARD, direction)
-	bolts.append({"position": emitter_position, "velocity": direction * BOLT_SPEED, "age": 0.0, "mesh": mesh})
+	bolts.append({"position": origin, "velocity": direction * BOLT_SPEED, "age": 0.0, "mesh": mesh})
 
 func _remove_bolt(index: int) -> void:
 	bolts[index].mesh.queue_free()
@@ -143,23 +192,115 @@ func aim_point(muzzle: Transform3D, shield_world: Transform3D) -> Vector3:
 	return _resolve(muzzle, shield_world).point
 
 func fire(muzzle: Transform3D, shield_world: Transform3D) -> Vector3:
+	shots_fired += 1
 	var result := _resolve(muzzle, shield_world)
 	last_shot_kind = result.kind
-	if result.target >= 0:
-		target_hits += 1
-		targets[result.target].hits += 1
-		targets[result.target].flash = 0.18
-	var endpoint: Vector3 = result.point
-	var distance := muzzle.origin.distance_to(endpoint)
-	if distance > 0.001:
-		var beam := _box((muzzle.origin + endpoint) * 0.5, Vector3(0.09, 0.09, distance), Color(0.3, 0.9, 1), true)
-		beam.quaternion = Quaternion(Vector3.FORWARD, (endpoint - muzzle.origin).normalized())
-		_flashes.append({"mesh": beam, "life": 0.075})
-	return endpoint
+	if pulses.size() >= MAX_PROJECTILES:
+		pulses.pop_front().mesh.queue_free()
+	var direction := -muzzle.basis.z.normalized()
+	var mesh := _box(muzzle.origin, Vector3(.28, .28, 5.0), Color(.3, .9, 1), true)
+	mesh.quaternion = Quaternion(Vector3.FORWARD, direction)
+	mesh.layers = 2 # Near-muzzle pulse is excluded from the rifle optic.
+	pulses.append({"position": muzzle.origin, "velocity": direction * PLAYER_SPEED, "mesh": mesh, "travel": 0.0})
+	return result.point
+
+func _update_targets() -> void:
+	for index in range(targets.size()):
+		var target: Dictionary = targets[index]
+		var offset: Vector3 = target.motion * sin(_time * .25 + index) - target.motion * sin(float(index))
+		for part in target.parts:
+			part.previous = part.transform
+			part.transform.origin = target.center + part.local + offset
+			part.mesh.position = part.transform.origin
+			part.body.position = part.transform.origin
+		target.hud_position = target.center + offset + Vector3(0, target.height * .75, 0)
+
+func _tick_pulses(dt: float, shield: Transform3D) -> void:
+	for index in range(pulses.size() - 1, -1, -1):
+		var pulse: Dictionary = pulses[index]
+		var end: Vector3 = pulse.position + pulse.velocity * minf(dt, (MAX_RANGE - pulse.travel) / PLAYER_SPEED)
+		var result := _resolve_segment(pulse.position, end, shield, true)
+		if result.kind != "range":
+			last_impact = result.point
+			last_shot_kind = result.kind
+			if result.target >= 0:
+				_target_hit(result.target, result.point)
+			else:
+				_burst(result.point, Color(.3, .85, 1) if result.kind == "shield" else Color(1, .6, .1), result.kind == "shield")
+			pulse.mesh.queue_free()
+			pulses.remove_at(index)
+			continue
+		pulse.travel += pulse.position.distance_to(end)
+		pulse.position = end
+		pulse.mesh.position = end
+		pulse.mesh.layers = 2 if pulse.travel < 12.0 else 1
+		if pulse.travel >= MAX_RANGE - .001:
+			pulse.mesh.queue_free()
+			pulses.remove_at(index)
+
+func _target_hit(index: int, point: Vector3) -> void:
+	target_hits += 1
+	targets[index].hits += 1
+	targets[index].flash = .28
+	_burst(point, Color(1, .55, .08))
+
+func _burst(point: Vector3, color: Color, deflect := false) -> void:
+	# Bounded expanding spark fan: hit confirmation only, no health/destruction.
+	for index in range(9):
+		if _flashes.size() >= MAX_EFFECTS:
+			_flashes.pop_front().mesh.queue_free()
+		var angle := index * TAU / 8.0
+		var direction := Vector3(cos(angle), sin(angle), .5).normalized()
+		var mesh := _box(point, Vector3(.45, .45, 2.0) if deflect else Vector3(1.5, 1.5, 1.5), color, true)
+		mesh.quaternion = Quaternion(Vector3.FORWARD, direction)
+		_flashes.append({"mesh": mesh, "life": .55, "duration": .55, "velocity": direction * (13.0 if deflect else 9.0)})
+
+func sword_sweep(base: Vector3, tip: Vector3, active: bool, dt: float) -> void:
+	if not active or dt <= 0:
+		_sword_valid = false
+		_sword_contacts.clear()
+		return
+	if not _sword_valid or maxf(base.distance_to(_sword_base), tip.distance_to(_sword_tip)) > 30.0:
+		_sword_valid = true
+		_sword_base = base
+		_sword_tip = tip
+		return
+	var contacts: Array[int] = []
+	for index in range(targets.size()):
+		var touched := false
+		var impact := tip
+		for part in targets[index].parts:
+			# Sweep closely spaced points along the full blade, plus current blade.
+			# Radius and spacing cover narrow boxes between the samples.
+			var steps := maxi(1, ceili(maxf(base.distance_to(tip), _sword_base.distance_to(_sword_tip)) / .2))
+			for sample in range(steps + 1):
+				var along := float(sample) / steps
+				var start := _sword_base.lerp(_sword_tip, along)
+				var end := base.lerp(tip, along)
+				var relative_start := start
+				if part.has("previous"):
+					relative_start += part.transform.origin - part.previous.origin
+				var fraction := segment_box(relative_start, end, part.transform, part.half + Vector3.ONE * .15)
+				if fraction >= 0:
+					touched = true
+					impact = start.lerp(end, fraction)
+					break
+			if touched:
+				break
+		if touched:
+			contacts.append(index)
+			if not _sword_contacts.has(index):
+				_target_hit(index, impact)
+	_sword_contacts = contacts
+	_sword_base = base
+	_sword_tip = tip
 
 func _resolve(muzzle: Transform3D, shield_world: Transform3D) -> Dictionary:
 	var start := muzzle.origin
 	var end := start - muzzle.basis.z.normalized() * MAX_RANGE
+	return _resolve_segment(start, end, shield_world)
+
+func _resolve_segment(start: Vector3, end: Vector3, shield_world: Transform3D, moving := false) -> Dictionary:
 	var best := 1.0
 	var target_index := -1
 	var kind := "range"
@@ -169,7 +310,10 @@ func _resolve(muzzle: Transform3D, shield_world: Transform3D) -> Dictionary:
 		kind = "shield"
 	for index in range(targets.size()):
 		for part in targets[index].parts:
-			fraction = segment_box(start, end, part.transform, part.half)
+			var relative_start := start
+			if moving and part.has("previous"):
+				relative_start += part.transform.origin - part.previous.origin
+			fraction = segment_box(relative_start, end, part.transform, part.half)
 			if fraction >= 0 and fraction < best:
 				best = fraction
 				target_index = index
@@ -204,9 +348,19 @@ static func segment_box(from: Vector3, to: Vector3, box_transform: Transform3D, 
 	return entry
 
 func reset() -> void:
+	_time = 0.0
+	_sword_valid = false
+	_sword_contacts.clear()
+	for pulse in pulses:
+		pulse.mesh.queue_free()
+	pulses.clear()
+	for emitter in emitters:
+		emitter.timer = 4.5
+	_update_targets()
 	hits = 0
 	blocks = 0
 	target_hits = 0
+	shots_fired = 0
 	telegraphing = false
 	_until_shot = maxf(cadence, TELEGRAPH_TIME + 0.1)
 	last_shot_kind = "none"
@@ -226,7 +380,7 @@ func _obstacle(center: Vector3, size: Vector3, color: Color) -> void:
 	_static_box(center, size)
 	obstacles.append({"transform": Transform3D(Basis.IDENTITY, center), "half": size * 0.5})
 
-func _static_box(center: Vector3, size: Vector3) -> void:
+func _static_box(center: Vector3, size: Vector3) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.position = center
 	var collision := CollisionShape3D.new()
@@ -235,6 +389,7 @@ func _static_box(center: Vector3, size: Vector3) -> void:
 	collision.shape = shape
 	body.add_child(collision)
 	add_child(body)
+	return body
 
 func _box(center: Vector3, size: Vector3, color: Color, emissive: bool = false) -> MeshInstance3D:
 	var instance := MeshInstance3D.new()

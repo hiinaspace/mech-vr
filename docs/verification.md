@@ -215,3 +215,43 @@ physical plume forces and distant-colony traversal remain out of scope.
 `artifacts/art-sun.png` and `artifacts/art-sun.log` verify the upward-looking
 Mobile render after correcting the source skybox pole orientations. Source PNGs
 remain unchanged; top/bottom faces rotate at runtime. No script/render errors.
+
+
+## Hybrid pilot controls, range combat and optic
+
+- 1,638 checks pass (`artifacts/hybrid-tests.log`): previous 1,504, range gains
+  one arrival check, pilot 40, actual pilot integration 20, rifle/scope 24,
+  combat 23, actual combat integration 26. The final combat integration log is
+  appended from its independently executed actual-scene run. The test runner
+  includes every suite for one-command reproduction.
+- Actual-scene tests cover pilot/arm exclusivity, fresh-grip recovery, other-arm
+  independence, cruise while both arms are held, head-independent direction,
+  brake closing the throttle without relaunch, roll retention, pause/reset,
+  scope near/rest/release/sword/pilot gates, actual barrel origin and delayed
+  pulse impact, servo-driven sword contact/debounce and inactive sweep reset.
+- Desktop Mobile/Vulkan replay passes all six checks (`hybrid-replay.log`).
+  `hybrid-render.log` reports 9 targets, 5 arrived rifle hits and sustained cruise
+  at 84.5 m/s during the ramp. Inspected `hybrid-cockpit.png`, `hybrid-scope.png`,
+  `hybrid-optic.png`, `hybrid-cruise.png`, `hybrid-exterior.png`. These are actual
+  scene captures. The second render corrects muzzle-pulse optic occlusion, scope
+  exit hysteresis, center-stick dashboard clearance and crowded contact labels.
+- Headless editor import passes (`hybrid-import.log`); diff whitespace check passes.
+- **Current XR preflight blocked by GPU state.** `hybrid-xr.log` fails before
+  scene startup with Vulkan error -3; `hybrid-xr-retry.log` also fails to create
+  Vulkan devices. At 21:03:27 MDT, the kernel records NVIDIA Xid 51 on the existing
+  normal Monado PID 3023114, Xid 154 recovery action PF FLR, then
+  `NV_ERR_RESET_REQUIRED`. Evidence: `hybrid-gpu-kernel.log`. This does not
+  establish a cause for the GPU fault. No shared service restart, GPU reset or
+  system change was attempted. Recover the host GPU (a user-timed reboot is
+  the straightforward route), then rerun isolated XR and the headset card.
+
+Tuning: center translation travel 20 cm, angular travel 0.55 rad, rate 35 deg/s pitch
+and 45 deg/s yaw/roll; release commands zero with existing motor deceleration.
+Main throttle is robot-forward 90 m/s max, ramped command, brake 45 m/s² and throttle
+OFF on brake/pause/lost left tracking. Scope 512² with 4x optics relative to 75 deg,
+enter 42 cm / exit 50 cm. Player pulse 240 m/s, range 2,600 m; first 12 m excluded from optic
+only. Nine bots, four moving; three outer emitters activate within 260 m. Sword
+contacts and sparks have no health, destruction, blade resistance or force sim.
+The colony remains decorative, with existing local obstacles providing collision.
+Physical reach, six-axis comfort, scope stereo usability and full-resolution
+performance remain user checks, especially while the extra optic camera renders.

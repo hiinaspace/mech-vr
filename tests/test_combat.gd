@@ -1,0 +1,92 @@
+extends SceneTree
+const RangeScript = preload("res://scripts/range_world.gd")
+var checks := 0
+var failures := 0
+func check(value: bool, caption: String) -> void:
+	checks += 1
+	if not value:
+		failures += 1
+		push_error(caption)
+func _initialize() -> void:
+	var world := RangeScript.new()
+	root.add_child(world)
+	world.setup()
+	var shield := Transform3D(Basis.IDENTITY, Vector3(10000, 0, 0))
+	check(world.targets.size() == 9 and world.emitters.size() == 3, "Outer range adds six contacts and three turrets")
+	var muzzle := Transform3D(Basis.IDENTITY, Vector3(-18, -7, 0))
+	world.fire(muzzle, shield)
+	check(world.shots_fired == 1 and world.pulses[0].mesh.layers == 2, "Shot counter increments and near pulse avoids optic")
+	world.tick(.02, Transform3D.IDENTITY, shield)
+	check(world.pulses[0].mesh.layers == 2, "Pulse stays hidden from optic inside twelve metres")
+	world.tick(.08, Transform3D.IDENTITY, shield)
+	check(world.pulses[0].mesh.layers == 1, "Distant pulse becomes visible in optic")
+	check(world.target_hits == 0 and world.pulses.size() == 1, "Pulse remains in flight before time of impact")
+	world.tick(.2, Transform3D.IDENTITY, shield)
+	check(world.target_hits == 1 and world.pulses.is_empty(), "Fast pulse sweeps through thin torso")
+	check(world._flashes.size() == 9, "Target impact spawns visible burst")
+	world.reset()
+	world.fire(muzzle, Transform3D(Basis.IDENTITY, Vector3(-18, -7, -4)))
+	world.tick(.3, Transform3D.IDENTITY, Transform3D(Basis.IDENTITY, Vector3(-18, -7, -4)))
+	check(world.target_hits == 0 and world.last_shot_kind == "shield", "Shield blocks player pulse before target")
+	world.reset()
+	var target: Dictionary = world.targets[3]
+	var original: Vector3 = target.parts[0].transform.origin
+	world.tick(1, Transform3D.IDENTITY, shield)
+	check(target.parts[0].transform.origin.distance_to(original) > .1, "Outer target moves")
+	check(target.parts[0].mesh.position == target.parts[0].body.position and target.parts[0].body.position == target.parts[0].transform.origin, "Moving visual, physics body and analytic hitbox agree")
+	world.reset()
+	# Move an outer contact across a nearby firing lane during a single large step.
+	var moving: Dictionary = world.targets[3]
+	var saved_center: Vector3 = moving.center
+	var saved_motion: Vector3 = moving.motion
+	moving.center = Vector3(-18, 12, -60)
+	moving.motion = Vector3(100, 0, 0)
+	world._update_targets()
+	world.fire(Transform3D(Basis.IDENTITY, Vector3(-24.2,12,0)), shield)
+	world.tick(.3, Transform3D.IDENTITY, shield)
+	check(moving.hits == 1, "Relative sweep intersects moving target during projectile flight")
+	world.reset()
+	moving.center = Vector3(-18, 12, -60)
+	moving.motion = Vector3(100, 0, 0)
+	world._update_targets()
+	world.sword_sweep(Vector3(-26,10,-60), Vector3(-26,16,-60), true, .01)
+	world.tick(.4, Transform3D.IDENTITY, shield)
+	world.sword_sweep(Vector3(-26,10,-60), Vector3(-26,16,-60), true, .4)
+	check(moving.hits == 1, "Moving contact crossing parked active blade registers a sweep")
+	moving.center = saved_center
+	moving.motion = saved_motion
+	world.reset()
+	world.sword_sweep(Vector3(-24,-7,-60), Vector3(-24,-1,-60), true, .01)
+	check(world.target_hits == 0, "Activating sword primes history without phantom slash")
+	world.sword_sweep(Vector3(-12,-7,-60), Vector3(-12,-1,-60), true, .01)
+	check(world.target_hits == 1, "Fast lateral slash hits between endpoints")
+	world.sword_sweep(Vector3(-18,-7,-60), Vector3(-18,-1,-60), true, .01)
+	world.sword_sweep(Vector3(-18,-7,-60), Vector3(-18,-1,-60), true, .01)
+	check(world.target_hits == 1, "Continuing contact does not farm hit feedback")
+	world.sword_sweep(Vector3.ZERO, Vector3.UP, false, .01)
+	world.sword_sweep(Vector3(-24,-7,-60), Vector3(-24,-1,-60), true, .01)
+	check(world.target_hits == 1, "Tracking/equipment gate resets sword history")
+	world.sword_sweep(Vector3(-12,-7,-60), Vector3(-12,-1,-60), true, .01)
+	check(world.target_hits == 2, "Fresh slash after release confirms again")
+	world.reset()
+	world.sword_sweep(Vector3(-24,-7,-60), Vector3(-24,-1,-60), true, .01)
+	world.sword_sweep(Vector3(60,-7,-60), Vector3(60,-1,-60), true, .01)
+	check(world.target_hits == 0, "Teleport-sized sword jump cannot slash across range")
+	for i in range(140):
+		world.fire(muzzle, shield)
+		world._burst(Vector3.ZERO, Color.WHITE)
+		world._spawn_bolt(Vector3.ZERO)
+	check(world.pulses.size() <= world.MAX_PROJECTILES and world.bolts.size() <= world.MAX_PROJECTILES and world._flashes.size() <= world.MAX_EFFECTS, "Projectiles and effects stay bounded")
+	world.reset()
+	check(world.shots_fired == 0, "Reset clears shot counter")
+	check(world.pulses.is_empty() and world.bolts.is_empty() and world._flashes.is_empty(), "Reset clears all flight and hit visuals")
+	world._spawn_bolt(Vector3.ZERO)
+	world.tick(2, Transform3D.IDENTITY, Transform3D(Basis.IDENTITY, Vector3(0,0,-4)))
+	check(world.blocks == 1 and world._flashes.size() > 0, "Incoming interception has shield spark feedback")
+	world.reset()
+	var near_outer := Transform3D(Basis.IDENTITY, Vector3(-110,45,-320))
+	world.tick(4.6, near_outer, shield)
+	check(world.bolts.size() > 1, "Nearby outer turret fires in addition to original emitter")
+	world.free()
+	print("COMBAT_TESTS %s (%d checks)" % ["PASS" if failures == 0 else "FAIL", checks])
+	quit(0 if failures == 0 else 1)

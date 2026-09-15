@@ -82,10 +82,19 @@ func update_hud(cockpit: Transform3D, eye: Transform3D, contacts: Array[Dictiona
 		var local: Vector3 = attitude.basis*mark.position
 		mark.visible = local.z < -.1 and absf(local.y) < .78
 	readout.text = "%03d°    P %+.0f°    %02.0f m/s" % [roundi(heading)%360,rad_to_deg(pitch),speed]
+	var label_directions: Array[Vector2] = []
 	for i in range(contact_nodes.size()):
 		var location: Vector3 = contacts[i].hud_position
 		place_symbol(contact_nodes[i],location,eye)
 		contact_labels[i].text = "TRN-H %02d / %.0fm" % [i+1,eye.origin.distance_to(location)]
+		var direction := eye.basis.inverse()*(location-eye.origin).normalized()
+		var screen_direction := Vector2(direction.x,direction.y)/maxf(-direction.z,.01)
+		var crowded := false
+		for previous in label_directions:
+			if absf(previous.x-screen_direction.x)<.19 and absf(previous.y-screen_direction.y)<.055:
+				crowded = true
+		contact_labels[i].visible = contact_nodes[i].visible and not crowded
+		if contact_labels[i].visible: label_directions.append(screen_direction)
 	place_symbol(gun,impact,eye)
 
 func place_symbol(node: Node3D, location: Vector3, eye: Transform3D) -> void:

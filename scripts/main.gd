@@ -5,6 +5,8 @@ const InputAdapter = preload("res://scripts/input_adapter.gd")
 const RangeWorld = preload("res://scripts/range_world.gd")
 var model = ControlModel.new()
 var handles = preload("res://scripts/cockpit_handles.gd").new()
+var pilot = preload("res://scripts/pilot_controls.gd").new()
+var pilot_status := {"owners":["",""]}
 var handle_visuals: Array[Node3D] = []
 var pointer_was_active := [false,false]
 var hand_live := [true,true]
@@ -23,6 +25,8 @@ var flight_hud = preload("res://scripts/flight_hud.gd").new()
 var weapon = preload("res://scripts/weapon_switch.gd").new()
 var weapon_status := {"consume_trigger":false,"dock_near":false,"dock_ready":false}
 var gun_visuals: Array[Node3D] = []
+var rifle = preload("res://scripts/rifle_visual.gd").new()
+var scope = preload("res://scripts/rifle_scope.gd").new()
 var trail = preload("res://scripts/exhaust_trail.gd").new()
 var robot = preload("res://scripts/robot_rig.gd").new()
 var hologram = preload("res://scripts/pose_hologram.gd").new()
@@ -77,6 +81,7 @@ func _ready() -> void:
 	adapter.reset_requested.connect(_reset)
 	adapter.mark_requested.connect(_mark)
 	_build_cockpit()
+	pilot.setup_visual(body)
 	gun_visuals.assign(arms[1].get_children())
 	weapon.setup_visual(arms[1])
 	add_child(trail)
@@ -88,6 +93,10 @@ func _ready() -> void:
 	body.add_child(robot)
 	robot.setup()
 	hologram.setup(body,robot,arms)
+	scope.setup(body,get_viewport().world_3d)
+	# The barrel camera sees the range, never the cockpit or its own display.
+	scope.exclude_tree(body)
+	scope.exclude_tree(reticle)
 	handles.enabled = bool(settings.get_value("experiment","grip_controls",true))
 	handles.set_mode(str(settings.get_value("experiment","regrab_mode","free")))
 	robot.posture_enabled = bool(settings.get_value("experiment","flight_preview",true))
@@ -135,8 +144,7 @@ func _build_cockpit() -> void:
 			box(arm, Vector3(4,6,.4), Vector3.ZERO, Color("247994"))
 			box(arm, Vector3(3.5,.12,.43), Vector3(0,0,0), Color("75dfff"))
 		else:
-			box(arm, Vector3(.6,.8,2), Vector3(0,0,-.7), Color("b3a387"))
-			box(arm, Vector3(.22,.22,1.2), Vector3(0,0,-2.1), Color("dfbd6c"))
+			rifle.setup(arm)
 
 		hands.append(box(body, Vector3(.045,.045,.10), Vector3.ZERO, Color("bceefa")))
 		var hand_material := hands[i].material_override as StandardMaterial3D
@@ -192,7 +200,9 @@ func _physics_process(dt: float) -> void:
 	sample.paused = paused or resume_delay > 0.0
 	resume_delay = maxf(0.0, resume_delay-dt)
 	var old_velocity: Vector3 = model.velocity
-	var mapped_sample: Dictionary = handles.step(sample,model,dt)
+	var busy: Array = handles.grabbed if handles.enabled else [model.owners[0]=="ARM",model.owners[1]=="ARM"]
+	pilot_status = pilot.step(sample,busy)
+	var mapped_sample: Dictionary = handles.step(pilot_status.sample,model,dt)
 	var result: Dictionary = model.step(mapped_sample,dt)
 	var weapon_eligible: bool = model.owners[1] == "ARM" and mapped_sample.get("valid_right",true) and (not handles.enabled or not handles.action_inhibited(1))
 	weapon_status = weapon.step(sample,weapon_eligible)
@@ -222,11 +232,11 @@ func _physics_process(dt: float) -> void:
 		var nearby: bool = hand_pose.origin.distance_to(handles.handles[i].origin) <= handles.CAPTURE_RADIUS
 		var grip_material: StandardMaterial3D = handle_visuals[i].get_child(0).material_override
 		grip_material.albedo_color = Color("83ffac") if hand_live[i] and nearby and not handles.grabbed[i] else (Color("ffd36b") if i else Color("3eaabd"))
-	robot.update_pose(dt,body.basis.inverse()*model.velocity,body.basis.inverse()*commanded_acceleration,arms,sample.head.basis,result.paused,result.boost_active)
+	robot.update_pose(dt,body.basis.inverse()*model.velocity,body.basis.inverse()*commanded_acceleration,arms,sample.head.basis,result.paused,result.boost_active,result.main_throttle)
 	trail.update_trail(dt,robot.world_exhaust_origins(),model.velocity,robot.effect_strength,result.paused)
 	hologram.sync()
 	reset_blend = maxf(0,reset_blend-dt)
-	var muzzle := arms[1].global_transform * Transform3D(Basis.IDENTITY,Vector3(0,0,-2.7))
+	var muzzle: Transform3D = rifle.muzzle_transform()
 	var shield := arms[0].global_transform
 	cooldown = maxf(0,cooldown-dt)
 	if not result.paused:
@@ -235,6 +245,9 @@ func _physics_process(dt: float) -> void:
 			world.fire(muzzle,shield)
 			cooldown = .15
 			log_event("fire", {"muzzle": str(muzzle)})
+	var blade: Dictionary = weapon.blade_segment()
+	world.sword_sweep(blade.base,blade.tip,weapon.sword and weapon_eligible and not result.paused and reset_blend<=0.0,dt)
+	scope.update_scope(sample.head,handles.handles[1],handles.enabled and handles.grabbed[1] and weapon_eligible,not weapon.sword,muzzle,not result.paused)
 	reticle.global_position = world.aim_point(muzzle,shield)
 	reticle.visible = false
 	flight_hud.update_hud(body.global_transform,adapter.camera.global_transform,world.targets,reticle.global_position,model.velocity.length())
@@ -251,7 +264,7 @@ func _physics_process(dt: float) -> void:
 	_panel_input(sample,result)
 	_update_display(result,muzzle)
 	if frames % 9 == 0:
-		var row := {"t":elapsed,"position":str(body.position),"velocity":str(model.velocity),"head":str(sample.head),"left":str(sample.left),"right":str(sample.right),"owners":model.owners.duplicate(),"actual":str(model.arm_actual),"desired":str(model.arm_targets),"boost":model.boost,"brake":sample.brake,"weapon":"sword" if weapon.sword else "gun","handles":str(handles.handles),"grabbed":handles.grabbed.duplicate(),"regrab_mode":handles.mode,"grip_controls":handles.enabled,"commanded_acceleration":str(commanded_acceleration),"flight_preview":robot.posture_enabled,"posture_mode":robot.flight.mode,"chest":str(robot.chest.global_transform),"shoulder_slide":robot.rail_extension.duplicate(),"hits":world.hits,"blocks":world.blocks,"target_hits":world.target_hits}
+		var row := {"t":elapsed,"position":str(body.position),"velocity":str(model.velocity),"head":str(sample.head),"left":str(sample.left),"right":str(sample.right),"owners":model.owners.duplicate(),"actual":str(model.arm_actual),"desired":str(model.arm_targets),"boost":model.boost,"brake":sample.brake,"weapon":"sword" if weapon.sword else "gun","pilot_owners":pilot_status.owners.duplicate(),"main_throttle":pilot.throttle,"scope":scope.visible,"handles":str(handles.handles),"grabbed":handles.grabbed.duplicate(),"regrab_mode":handles.mode,"grip_controls":handles.enabled,"commanded_acceleration":str(commanded_acceleration),"flight_preview":robot.posture_enabled,"posture_mode":robot.flight.mode,"chest":str(robot.chest.global_transform),"shoulder_slide":robot.rail_extension.duplicate(),"hits":world.hits,"blocks":world.blocks,"target_hits":world.target_hits}
 		ring.append(row)
 		if ring.size() > 300: ring.pop_front()
 		if replay: trace.store_line(JSON.stringify(row))
@@ -277,7 +290,7 @@ func _panel_input(sample: Dictionary, result: Dictionary) -> void:
 	for i in range(2):
 		var pose: Transform3D = sample.left if i == 0 else sample.right
 		var valid: bool = sample.get("valid_left" if i == 0 else "valid_right",true) and sample.focused
-		var active: bool = valid and (paused or (handles.enabled and not handles.grabbed[i]) or (not handles.enabled and model.owners[i] == "UI"))
+		var active: bool = valid and pilot_status.owners[i] == "" and (paused or (handles.enabled and not handles.grabbed[i]) or (not handles.enabled and model.owners[i] == "UI"))
 		pointers[i].visible = active
 		pointers[i].transform = pose * Transform3D(Basis.IDENTITY,Vector3(0,0,-.45))
 		var uv := panel_hit(pose) if active else Vector2(-1,-1)
@@ -349,9 +362,10 @@ func _update_display(result: Dictionary, muzzle: Transform3D) -> void:
 		menu_labels[row].text = rows[row]
 		menu_labels[row].modulate = Color("7cffe0") if hovered == row and row >= 2 else Color.WHITE
 	if not paused:
-		display.text = "SPD %4.1f  BOOST %3.0f%%  %s%s\nL: %s\nR: %s\nHIT %s BLOCK %s TARGET %s  RANGE %.0fm\n%s" % [model.velocity.length(),model.boost*100,"PITCH" if result.attitude_mode else "VERTICAL"," / CENTER STICKS" if result.mode_neutral_required or result.movement_neutral_required else "",_owner_label(0),_owner_label(1),str(world.hits),str(world.blocks),str(world.target_hits),muzzle.origin.distance_to(reticle.global_position),("SWORD / behind-head trigger: rifle" if weapon.sword else "RIFLE / behind-head trigger: sword") if handles.enabled else "B: arm / UI toggle. Release trigger after handoff."]
+		display.text = "SPD %4.1f  BOOST %3.0f%%  MAIN %3.0f%%  %s%s\nL: %s\nR: %s\nHIT %s BLOCK %s TARGET %s  RANGE %.0fm\n%s" % [model.velocity.length(),model.boost*100,pilot.throttle*100,"PITCH" if result.attitude_mode else "VERTICAL"," / CENTER STICKS" if result.mode_neutral_required or result.movement_neutral_required else "",_owner_label(0),_owner_label(1),str(world.hits),str(world.blocks),str(world.target_hits),muzzle.origin.distance_to(reticle.global_position),("SWORD / behind-head trigger: rifle" if weapon.sword else "RIFLE / behind-head trigger: sword") if handles.enabled else "B: arm / UI toggle. Release trigger after handoff."]
 
 func _owner_label(index: int) -> String:
+	if pilot_status.owners[index] != "": return pilot_status.owners[index]+" / GRIP HELD"
 	if handles.enabled:
 		if not hand_live[index]: return "TRACKING LOST / PARKED"
 		if handles.grabbed[index]:
@@ -375,6 +389,8 @@ func _reset() -> void:
 	robot.reset()
 	weapon.reset()
 	trail.reset()
+	pilot.reset()
+	pilot_status = {"owners":["",""]}
 	handles.reset()
 	body.transform = Transform3D.IDENTITY
 	world.reset()
