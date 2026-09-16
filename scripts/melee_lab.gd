@@ -6,14 +6,18 @@ const Adapter = preload("res://scripts/input_adapter.gd")
 const Physics = preload("res://scripts/melee_physics.gd")
 const Replay = preload("res://scripts/melee_replay.gd")
 const View = preload("res://scripts/melee_view.gd")
-const ROW_HEIGHT := .068
-const PANEL_WIDTH := .64
+const ROW_HEIGHT := .065
+const PANEL_WIDTH := .60
 const COCKPIT_OFFSET := Vector3(0,4.9,-1)
 const MODE_NAMES := ["GUARD", "REPEATED CUT", "SLAB"]
 var physics = Physics.new()
+var delay = preload("res://scripts/melee_delay.gd").new()
+var appearance_time := 0.0
 var recorder = Replay.new()
 var view = View.new()
 var model = ControlModel.new()
+var pilot = preload("res://scripts/pilot_controls.gd").new()
+var pilot_status := {"owners":["",""]}
 var handles = preload("res://scripts/cockpit_handles.gd").new()
 var adapter = Adapter.new()
 var cockpit := Node3D.new()
@@ -39,6 +43,20 @@ var free_replay := false
 var grip_controls := true
 var bracing := 0
 var hovered := -1
+var tuning_page := false
+var slider_capture := [-1,-1]
+var slider_tracks: Array[MeshInstance3D] = []
+var slider_knobs: Array[MeshInstance3D] = []
+const TUNING := [
+	["ARM FORCE", "arm_force_limit", 1000.0, 180000.0, "kN"],
+	["ARM TORQUE", "arm_torque_limit", 1000.0, 180000.0, "kNm"],
+	["ARM RESPONSE", "arm_response", .25, 4.0, "x"],
+	["THRUST", "thrust_limit", 0.0, 900000.0, "kN"],
+	["ATTITUDE", "attitude_limit", 0.0, 1500000.0, "kNm"],
+	["SLASH SPEED", "slash_speed", .5, 10.0, "rad/s"],
+	["PING RTT", "rtt_ms", 0.0, 400.0, "ms"]
+]
+var rtt_ms := 0.0
 var trigger_down := [true, true]
 var pointer_active := [false, false]
 var live_cockpit := Transform3D.IDENTITY
@@ -82,9 +100,13 @@ func _ready() -> void:
 			get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
 			get_window().content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 	_build_cockpit()
+	pilot.setup_visual(cockpit)
 	view.setup_puppet(cockpit)
 	_build_panel()
 	_build_audio()
+	if "--capture-tuning" in OS.get_cmdline_user_args():
+		tuning_page = true
+		adapter.camera.rotation.x = -.65
 	for i in 2:
 		var marker := _box(self,Vector3(.16,.16,.16),Vector3.ZERO,Color("ffcc65"))
 		markers.append(marker)
@@ -95,7 +117,9 @@ func _ready() -> void:
 	_label(plate_visual,"CONTACT PLATE",Vector3(0,3.6,.34),.007)
 	for i in 2:
 		thrust_visuals.append(_box(self,Vector3.ONE,Vector3.ZERO,Color("6ffff0")))
-	view.update_snapshot(physics.snapshot(),0.0)
+	last_snapshot = physics.snapshot()
+	delay.reset(_neutral_command(),last_snapshot)
+	view.update_snapshot(last_snapshot,0.0)
 	_update_display()
 	if demo:
 		message = "Scripted contact demonstration"
@@ -150,11 +174,16 @@ func _build_cockpit() -> void:
 
 func _build_panel() -> void:
 	cockpit.add_child(panel)
-	panel.position = Vector3(-.30,-.52,-1.22)
-	panel.rotation_degrees.x = -18
+	panel.position = Vector3(-.30,-.77,-1.02)
+	panel.rotation_degrees.x = -45
+	panel.scale = Vector3.ONE*.8
 	_box(panel,Vector3(PANEL_WIDTH+.025,ROW_HEIGHT*9+.025,.018),Vector3(0,0,.013),Color("081d2b"))
 	for i in 9:
 		rows.append(_label(panel,"",Vector3(0,(4-i)*ROW_HEIGHT,.028),.001))
+	for i in TUNING.size():
+		var y := (3-i)*ROW_HEIGHT-.022
+		slider_tracks.append(_box(panel,Vector3(PANEL_WIDTH*.80,.005,.004),Vector3(0,y,.030),Color("567e89")))
+		slider_knobs.append(_box(panel,Vector3(.014,.022,.006),Vector3(0,y,.034),Color("71ffd5")))
 	add_child(note_layer)
 	note_layer.layer = 20
 	note_layer.add_child(note_edit)
@@ -209,6 +238,7 @@ func _physics_process(dt: float) -> void:
 	if not sample.focused and not paused:
 		paused = true
 		message = "Session focus lost — resume explicitly after returning."
+		_flush_delay()
 		_log("focus_pause",{})
 	if recorder.replaying:
 		physics.set_paused(true)
@@ -217,6 +247,7 @@ func _physics_process(dt: float) -> void:
 		var replay_snapshot: Dictionary = recorder.sample()
 		if not replay_snapshot.is_empty():
 			view.apply_visuals(replay_snapshot.get("visuals",[]))
+			view.apply_appearance(replay_snapshot.get("appearance",{}))
 			if not free_replay:
 				cockpit.global_transform = replay_snapshot.get("cockpit",live_cockpit)
 			else:
@@ -226,11 +257,16 @@ func _physics_process(dt: float) -> void:
 		_update_display()
 		return
 	physics.set_paused(paused)
-	var snapshot: Dictionary = physics.snapshot()
+	var committed: Dictionary = physics.snapshot()
+	if not paused:
+		delay.advance(dt)
+		delay.send_snapshot(committed)
+	var snapshot: Dictionary = delay.receive_snapshot()
+	if snapshot.is_empty(): snapshot = committed
 	last_snapshot = snapshot
 	var player: Dictionary = snapshot.rigs[0]
 	var actual_body: Transform3D = player.body
-	cockpit.global_basis = actual_body.basis if physical_camera else model.body_basis
+	cockpit.global_basis = actual_body.basis if physical_camera else player.get("commanded_basis",actual_body.basis)
 	cockpit.global_position = actual_body.origin + cockpit.global_basis*COCKPIT_OFFSET
 	# Feed the latest solved endpoints back before ownership transitions. Parking
 	# captures ACTUAL poses; it cannot store a spring command behind an obstacle.
@@ -238,32 +274,44 @@ func _physics_process(dt: float) -> void:
 		model.arm_actual[i] = cockpit.global_transform.affine_inverse()*player.grips[i]
 	sample.paused = paused
 	handles.enabled = grip_controls
-	var adapted: Dictionary = handles.step(sample,model,dt)
-	model.step(adapted,dt)
+	pilot_status = pilot.step(sample,handles.pilot_reservations(sample))
+	var adapted: Dictionary = handles.step(pilot_status.sample,model,dt)
+	var motor_result: Dictionary = model.step(adapted,dt)
 	var commands: Array[Transform3D] = []
 	for i in 2:
 		commands.append(actual_body.affine_inverse()*cockpit.global_transform*model.arm_targets[i])
-	physics.command_player(commands,actual_body.basis.inverse()*model.velocity,actual_body.basis.inverse()*model.body_basis*Vector3(model.pitch_rate,model.yaw_rate,model.roll_rate))
-	physics.desired_basis = model.body_basis
-	if not paused: sim_time += dt
-	view.update_snapshot(snapshot,dt if not paused else 0.0)
+	if not paused:
+		delay.send_input({"grips":commands,"velocity":actual_body.basis.inverse()*model.velocity,
+			"angular_velocity":actual_body.basis.inverse()*model.body_basis*Vector3(model.pitch_rate,model.yaw_rate,model.roll_rate),
+			"desired_basis":model.body_basis,"boost":motor_result.boost_active})
+		physics.apply_command(delay.receive_input())
+		sim_time += dt
+	var displayed_time := float(snapshot.get("time",0.0))
+	view.update_snapshot(snapshot,maxf(0,displayed_time-appearance_time) if not paused else 0.0)
+	appearance_time = displayed_time
+
 	for i in 2:
 		handle_meshes[i].transform = handles.handles[i]
 		hand_meshes[i].transform = sample.left if i==0 else sample.right
 		hand_meshes[i].visible = sample.focused and sample.get("valid_left" if i==0 else "valid_right",false)
 		var material := handle_meshes[i].material_override as StandardMaterial3D
 		material.albedo_color = Color("79ffbd") if handles.grabbed[i] else (Color("64e4f0") if i==0 else Color("ffc777"))
-		markers[i].global_position = (cockpit.global_transform*model.arm_targets[i]).origin
+		markers[i].global_position = player.commands[i].origin
 		markers[i].visible = not paused and markers[i].global_position.distance_to(player.grips[i].origin)>.25
 	_show_contacts(snapshot,not paused,dt)
 	if not paused:
 		snapshot["visuals"] = view.capture_visuals()
+		snapshot["appearance"] = view.capture_appearance()
 		snapshot["cockpit"] = cockpit.global_transform
 		snapshot["sim_time"] = sim_time
 		snapshot["mode"] = MODE_NAMES[mode]
 		snapshot["fixed"] = fixed_opponent
-		snapshot["bracing"] = ["NORMAL","SOFT","COAST"][bracing]
+		snapshot["bracing"] = _bracing_label()
 		snapshot["events"] = snapshot.get("contacts",[]).duplicate(true)
+		snapshot["rtt_ms"] = rtt_ms
+		snapshot["cockpit_controls"] = {"boost_reserve":model.boost,"throttle":pilot.throttle}
+		snapshot["delivered_input_sequence"] = delay.input_sequence
+		snapshot["delivered_snapshot_sequence"] = delay.snapshot_sequence
 		recorder.record(dt,snapshot)
 	_panel_input(sample)
 	_update_display()
@@ -305,14 +353,17 @@ func _show_contacts(snapshot: Dictionary, audible: bool, dt: float) -> void:
 	load_audio.volume_db = lerpf(-55,-24,clampf(load,0,1))
 	load_audio.pitch_scale = lerpf(.75,1.3,clampf(load,0,1))
 
-func panel_hit(pose: Transform3D) -> int:
+func panel_point(pose: Transform3D) -> Vector3:
 	var local := panel.transform.affine_inverse()*pose
 	var direction := -local.basis.z
-	if direction.z>=-.001: return -1
+	if direction.z>=-.001: return Vector3(INF,INF,INF)
 	var distance := -local.origin.z/direction.z
-	if distance<0 or distance>4: return -1
-	var hit := local.origin+direction*distance
-	if absf(hit.x)>PANEL_WIDTH*.5 or absf(hit.y)>ROW_HEIGHT*4.5: return -1
+	if distance<0 or distance>5: return Vector3(INF,INF,INF)
+	return local.origin+direction*distance
+
+func panel_hit(pose: Transform3D) -> int:
+	var hit := panel_point(pose)
+	if not hit.is_finite() or absf(hit.x)>PANEL_WIDTH*.5 or absf(hit.y)>ROW_HEIGHT*4.5: return -1
 	return clampi(int(floor(4.5-hit.y/ROW_HEIGHT)),0,8)
 
 func _panel_input(sample: Dictionary) -> void:
@@ -320,7 +371,7 @@ func _panel_input(sample: Dictionary) -> void:
 	var consumed := false
 	for i in 2:
 		var valid: bool = sample.focused and sample.get("valid_left" if i==0 else "valid_right",false)
-		var active: bool = valid and (paused or recorder.replaying or not handles.grabbed[i])
+		var active: bool = valid and pilot_status.owners[i]=="" and (paused or recorder.replaying or not handles.grabbed[i])
 		var pose: Transform3D = sample.left if i==0 else sample.right
 		pointers[i].visible = active
 		pointers[i].transform = pose*Transform3D(Basis.IDENTITY,Vector3(0,0,-.45))
@@ -328,14 +379,72 @@ func _panel_input(sample: Dictionary) -> void:
 		var fresh: bool = down and not trigger_down[i] and pointer_active[i]
 		trigger_down[i] = down or not valid
 		pointer_active[i] = active
+		if not active or not down or recorder.replaying or not tuning_page: slider_capture[i] = -1
 		var row := panel_hit(pose) if active else -1
-		if row>=0:
-			hovered = row
-			if fresh and not consumed:
+		if row>=0: hovered = row
+		if tuning_page and not recorder.replaying:
+			if fresh and row>=1 and row<=7 and slider_capture[1-i]<0:
+				slider_capture[i] = row-1
+			if slider_capture[i]>=0:
+				var point := panel_point(pose)
+				if point.is_finite(): set_tuning_fraction(slider_capture[i],point.x/(PANEL_WIDTH*.8)+.5)
 				consumed = true
-				_action(row)
+		if row>=0 and fresh and not consumed:
+			consumed = true
+			_action(row)
+
+func _neutral_command() -> Dictionary:
+	var state: Dictionary = physics.snapshot().rigs[0]
+	var grips: Array[Transform3D] = []
+	for pose in state.grips: grips.append(state.body.affine_inverse()*pose)
+	return {"grips":grips,"velocity":Vector3.ZERO,"angular_velocity":Vector3.ZERO,
+		"desired_basis":state.get("commanded_basis",state.body.basis),"boost":false}
+
+func _flush_delay() -> void:
+	delay.flush(_neutral_command(),last_snapshot)
+	slider_capture = [-1,-1]
+
+func _set_rtt(value: float) -> void:
+	rtt_ms = clampf(value,0,400)
+	delay.configure(rtt_ms,_neutral_command(),last_snapshot)
+	message = "RTT %.0fms: half each way; queued commands cleared." % rtt_ms
+	_log("rtt",{"milliseconds":rtt_ms})
+
+func tuning_value(index: int) -> float:
+	return rtt_ms if index==6 else float(physics.get(TUNING[index][1]))
+
+func set_tuning_fraction(index: int, fraction: float) -> void:
+	if index<0 or index>=TUNING.size(): return
+	var value := lerpf(TUNING[index][2],TUNING[index][3],clampf(fraction,0,1))
+	if index==6:
+		value = roundf(value/10.0)*10.0
+		if value!=rtt_ms: _set_rtt(value)
+	else:
+		physics.set(TUNING[index][1],value)
+		if index in [3,4]:
+			physics.thrusters_enabled = true
+			bracing = 0
+	_update_display()
+
+func _bracing_label() -> String:
+	if not physics.thrusters_enabled: return "COAST"
+	if is_equal_approx(physics.thrust_limit,15000) and is_equal_approx(physics.attitude_limit,30000): return "SOFT"
+	if is_equal_approx(physics.thrust_limit,90000) and is_equal_approx(physics.attitude_limit,150000): return "NORMAL"
+	return "CUSTOM"
+
+func _cycle_bracing() -> void:
+	bracing = (bracing+1)%3
+	physics.thrusters_enabled = bracing!=2
+	physics.thrust_limit = 15000.0 if bracing==1 else 90000.0
+	physics.attitude_limit = 30000.0 if bracing==1 else 150000.0
+	_update_display()
 
 func _action(row: int) -> void:
+	if tuning_page and not recorder.replaying:
+		if row==0: tuning_page = false
+		elif row==8: _cycle_bracing()
+		_update_display()
+		return
 	if recorder.replaying:
 		match row:
 			0: _leave_replay()
@@ -364,12 +473,7 @@ func _action(row: int) -> void:
 				message = "Camera comparison changed; resume explicitly."
 			6: _save_replay()
 			7: _mark()
-			8:
-				bracing = (bracing+1)%3
-				physics.thrusters_enabled = bracing!=2
-				physics.thrust_limit = 15000.0 if bracing==1 else 90000.0
-				physics.attitude_limit = 30000.0 if bracing==1 else 150000.0
-				_reset()
+			8: tuning_page = true
 	trigger_down = [true,true]
 	pointer_active = [false,false]
 	_update_display()
@@ -379,7 +483,19 @@ func _update_display() -> void:
 	if recorder.replaying:
 		texts = ["RETURN TO LIVE (paused) [T]","%s  %.1f / %.1fs [P]" % ["PAUSE REPLAY" if recorder.playing else "PLAY REPLAY",recorder.cursor,recorder.duration()],"BACK 1 SECOND  [ [ ]","FORWARD 1 SECOND  [ ] ]","VIEW: %s [V]" % ("FREE FLIGHT" if free_replay else "RECORDED COCKPIT"),"MARK THIS MOMENT [F8]","EXPORT REPLAY + NOTES [F5]","ADD TEXT NOTE [N / desktop]","JUMP TO START"]
 	else:
-		texts = ["%s [Esc / stick click]" % ("RESUME" if paused else "PAUSE"),"RESET + CALIBRATE [R]","OPPONENT: %s [M]" % MODE_NAMES[mode],"BASE: %s [F]" % ("FIXED" if fixed_opponent else "FREE"),"REPLAY LAST 20 SECONDS [T]","COCKPIT: %s [C]" % ("PHYSICAL" if physical_camera else "STABILIZED"),"EXPORT CLIP + NOTES [F5]","MARK MOMENT [F8]","BRACING: %s [K]" % ["NORMAL","SOFT","COAST"][bracing]]
+		texts = ["%s [Esc / stick click]" % ("RESUME" if paused else "PAUSE"),"RESET + CALIBRATE [R]","OPPONENT: %s [M]" % MODE_NAMES[mode],"BASE: %s [F]" % ("FIXED" if fixed_opponent else "FREE"),"REPLAY LAST 20 SECONDS [T]","COCKPIT: %s [C]" % ("PHYSICAL" if physical_camera else "STABILIZED"),"EXPORT CLIP + NOTES [F5]","MARK MOMENT [F8]","TUNE FORCE / SPEED / LAG [F2]"]
+	if tuning_page and not recorder.replaying:
+		texts = ["BACK TO CONTROLS [F2]"]
+		for i in TUNING.size():
+			var value := tuning_value(i)
+			if TUNING[i][4] in ["kN","kNm"]: value /= 1000.0
+			texts.append("%s  %.1f %s" % [TUNING[i][0],value,TUNING[i][4]])
+		texts.append("BRACING: %s [K]" % _bracing_label())
+	for i in slider_tracks.size():
+		slider_tracks[i].visible = tuning_page and not recorder.replaying
+		slider_knobs[i].visible = slider_tracks[i].visible
+		if slider_tracks[i].visible:
+			slider_knobs[i].position.x = (inverse_lerp(TUNING[i][2],TUNING[i][3],tuning_value(i))-.5)*PANEL_WIDTH*.8
 	for i in rows.size():
 		rows[i].text = texts[i]
 		rows[i].modulate = Color("76ffd4") if hovered==i else Color("b6e8ed")
@@ -390,7 +506,8 @@ func _update_display() -> void:
 		speed = telemetry.rigs[0].get("velocity",Vector3.ZERO).length()
 		var loads: Array = telemetry.rigs[0].get("loads",[{},{}])
 		load_text = "LOAD L %3.0f%% / R %3.0f%%" % [float(loads[0].get("effort",0))*100,float(loads[1].get("effort",0))*100]
-	status.text = "MELEE LAB / %s\n%s\nL %s   R %s  /  %.1f m/s\n%s\n%s" % ["REPLAY — LIVE FROZEN" if recorder.replaying else ("PAUSED" if paused else MODE_NAMES[mode]),"Amber dots: requested grips","HELD" if handles.grabbed[0] else "PARKED","HELD" if handles.grabbed[1] else "PARKED",speed,load_text,message]
+	var shown_controls: Dictionary = telemetry.get("cockpit_controls",{"boost_reserve":model.boost,"throttle":pilot.throttle})
+	status.text = "MELEE LAB / %s\n%s\nL %s   R %s  /  %.1f m/s\n%s\n%s" % ["REPLAY — LIVE FROZEN" if recorder.replaying else ("PAUSED" if paused else MODE_NAMES[mode]),"Amber dots: requested grips","HELD" if handles.grabbed[0] else "PARKED","HELD" if handles.grabbed[1] else "PARKED",speed,load_text,"BOOST %d%% / MAIN %d%% / RTT %dms\n%s" % [shown_controls.get("boost_reserve",1.0)*100,shown_controls.get("throttle",0.0)*100,telemetry.get("rtt_ms",rtt_ms),message]]
 
 func _toggle_pause() -> void:
 	if note_edit.visible:
@@ -402,6 +519,7 @@ func _toggle_pause() -> void:
 		return
 	paused = not paused
 	physics.set_paused(paused)
+	_flush_delay()
 	trigger_down = [true,true]
 	message = "Release grips, then grab the nearby handles." if not paused else "Paused. Aim either hand at a row and use a fresh trigger."
 	_log("pause",{"paused":paused})
@@ -411,8 +529,14 @@ func _reset() -> void:
 	paused = true
 	physics.set_paused(true)
 	physics.reset()
+	view.reset_appearance()
+	last_snapshot = physics.snapshot()
+	delay.reset(_neutral_command(),last_snapshot)
+	appearance_time = 0.0
 	model.reset()
 	handles.reset()
+	pilot.reset()
+	pilot_status = {"owners":["",""]}
 	adapter.recenter()
 	cockpit.transform = Transform3D.IDENTITY
 	recorder = Replay.new()
@@ -442,6 +566,10 @@ func _enter_replay_view() -> void:
 	paused = true
 	physics.set_paused(true)
 	free_replay = false
+	slider_capture = [-1,-1]
+	pilot.reset()
+	pilot_status = {"owners":["",""]}
+	_flush_delay()
 	for marker in markers: marker.visible = false
 	message = "Replay: pause, scrub or switch to free flight. Live bodies are frozen."
 	trigger_down = [true,true]
@@ -451,9 +579,12 @@ func _enter_replay_view() -> void:
 func _leave_replay() -> void:
 	recorder.end_replay()
 	cockpit.global_transform = live_cockpit
-	view.update_snapshot(physics.snapshot(),0.0)
+	view.update_snapshot(last_snapshot,0.0)
 	paused = true
+	_flush_delay()
 	handles.reset()
+	pilot.reset()
+	pilot_status = {"owners":["",""]}
 	message = "Returned to live, paused. Resume and regrab handles."
 	trigger_down = [true,true]
 	_log("replay_end",{})
@@ -510,6 +641,7 @@ func load_replay_file(path: String) -> Error:
 	var expected_visuals: int = view.capture_visuals().size()
 	for frame in candidate._clip:
 		var state: Dictionary = frame.state
+		if state.has("appearance") and (not state.appearance is Dictionary or not view.valid_appearance(state.appearance)): return ERR_INVALID_DATA
 		if not state.get("cockpit") is Transform3D or not state.get("visuals") is Array or not state.get("rigs") is Array or state.rigs.size()!=2 or state.visuals.size()!=expected_visuals: return ERR_INVALID_DATA
 		for pose in state.visuals:
 			if not pose is Transform3D: return ERR_INVALID_DATA
@@ -543,7 +675,12 @@ func _input(event: InputEvent) -> void:
 		KEY_M: if not recorder.replaying: _action(2)
 		KEY_F: if not recorder.replaying: _action(3)
 		KEY_C: if not recorder.replaying: _action(5)
-		KEY_K: if not recorder.replaying: _action(8)
+		KEY_K: if not recorder.replaying: _cycle_bracing()
+		KEY_F2:
+			if not recorder.replaying:
+				tuning_page = not tuning_page
+				slider_capture = [-1,-1]
+				_update_display()
 		KEY_F5: _save_replay()
 		KEY_P: if recorder.replaying: recorder.toggle_playing()
 		KEY_BRACKETLEFT: if recorder.replaying: recorder.scrub(recorder.cursor-1.0)
@@ -578,7 +715,7 @@ func _process(dt: float) -> void:
 	max_frame_ms = maxf(max_frame_ms,dt*1000)
 	frame_total += dt
 	if "--capture" in OS.get_cmdline_user_args() and frames==360 and DisplayServer.get_name()!="headless":
-		get_viewport().get_texture().get_image().save_png("res://artifacts/melee-cockpit.png")
+		get_viewport().get_texture().get_image().save_png("res://artifacts/melee-tuning.png" if "--capture-tuning" in OS.get_cmdline_user_args() else "res://artifacts/melee-cockpit.png")
 	if "--capture" in OS.get_cmdline_user_args() and frames==400:
 		_begin_replay()
 		if recorder.replaying:

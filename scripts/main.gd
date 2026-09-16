@@ -200,7 +200,7 @@ func _physics_process(dt: float) -> void:
 	sample.paused = paused or resume_delay > 0.0
 	resume_delay = maxf(0.0, resume_delay-dt)
 	var old_velocity: Vector3 = model.velocity
-	var busy: Array = handles.grabbed if handles.enabled else [model.owners[0]=="ARM",model.owners[1]=="ARM"]
+	var busy: Array = handles.pilot_reservations(sample) if handles.enabled else [model.owners[0]=="ARM",model.owners[1]=="ARM"]
 	pilot_status = pilot.step(sample,busy)
 	var mapped_sample: Dictionary = handles.step(pilot_status.sample,model,dt)
 	var result: Dictionary = model.step(mapped_sample,dt)

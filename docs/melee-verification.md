@@ -1,4 +1,71 @@
-# Melee lab verification — 2026-09-15
+# Melee tuning pass — 2026-09-16
+
+User feedback described arm forces/compensators as promising and authorized this
+live tuning, simulated-lag, movement and readability pass. Actual headset judgment
+of the revised controls/materials remains the next gate.
+
+## Current evidence
+
+- All 25 test scripts pass: the 24-script suite in
+  `artifacts/melee-tuning-suite.log`, plus the subsequently added 10-check ray/drag
+  panel test in `artifacts/melee-panel.log`. The runner now includes all 25.
+- Physics: 42 checks after the final live-speed continuity fix, including broad
+  overhead slash geometry, finite high-strength actuation and player-only boost.
+  Speed edits preserve the active slash phase instead of jumping the target.
+  The earlier full-suite log contains the preceding 35-check physics version. Paired pose view: 639 checks.
+- Integrated authority/movement: 170 checks prove half-RTT command arrival and
+  half-RTT committed return, delayed cockpit orientation/translation, live tuning,
+  pause/replay flushing, physical six-axis stick, boost and brake priority.
+- Delay helper: 18 checks. Existing integrated replay lab: 39 checks. Dedicated
+  overlap test verifies the movable arm handle wins a fresh acquisition over the
+  resettable stick. Original ranged scene uses that same fix.
+- Appearance tests verify heat attachment/fade, replay roundtrip/validation and
+  independent arm colors. Real Vulkan GPU readback verifies hot atlas pixels,
+  an unaffected opposite face and cooling. Evidence:
+  `artifacts/melee-appearance-render.log`, `melee-appearance.png`.
+- Final rendered contact/replay views inspected in `artifacts/melee-cockpit.png`
+  and `melee-replay.png`; lower tilted slider panel inspected in `melee-tuning.png`.
+  Render logs: `melee-tuning-render.log`, `melee-tuning-panel.log`.
+- Isolated XR command below exits 0 and reaches focused simulated headset/both
+  controller tracking. Same stock shutdown diagnostics persist (session not
+  stopping, disconnect and three InteractionProfile RIDs). Evidence:
+  `artifacts/melee-tuning-xr.log`. No shared service or NixOS configuration changes.
+
+```sh
+DISPLAY=:0 WAYLAND_DISPLAY=wayland-1 ./scripts/run-monado-qwerty.sh --melee --smoke 180
+```
+
+## Model and rendering limits
+
+The lag harness transports already-mapped desired poses/velocity/attitude. Physics
+and its finite actuator loops run authoritatively; render poses use only returned
+snapshots. Local head/hand tracking, cockpit controls and control-intent mapping
+remain immediate. It is fixed symmetric latency, with no prediction, jitter,
+packet loss, real server scheduling or adversarial remote inputs. Physics tick
+sampling adds a small delay beyond the chosen RTT. Tuning values are immediate
+operator settings. RTT changes flush both queues and reseed parked commands plus
+the previous displayed state, so dragging ping can briefly hold the view.
+
+Heat uses Godot 4.7's [DrawableTexture2D](https://docs.godotengine.org/en/4.7/classes/class_drawabletexture2d.html)
+to paint a small six-face atlas, restored from up to eight compact marks per
+surface. Marks shrink near face seams rather than spilling into another face.
+Only body/shield contact paints heat; blades do not burn each other. This is
+visual feedback with fading, not heat transfer, material loss or damage. Puppet
+arm colors indicate normalized motor effort (force/torque versus current limits),
+not an absolute force scale. Limb geometry remains visual IK.
+
+Some rendered lab exits report four leaked audio objects: verbose inspection
+identifies two AudioStreamWAV and two AudioStreamPlaybackWAV references, not the
+Drawable textures. The standalone painted-material render exits cleanly. Audio
+shutdown ownership needs a focused engine/application lifecycle fix; no global
+runtime workaround was introduced. The older editor/XR diagnostics below remain
+separate from successful runtime tests.
+
+See [the revised test card](melee-headset-test.md) for controls and comparisons.
+
+---
+
+## Previous contact lab verification — 2026-09-15
 
 Godot `4.7.2.stable.nixpkgs.ed1daf0bf`, Mobile/Vulkan, NVIDIA RTX 4090.
 

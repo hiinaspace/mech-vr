@@ -4,7 +4,9 @@
 
 `./scripts/run-melee.sh --xr` launches the new contact lab; omit `--xr` for desktop.
 Finite-force rigid-body sword/shield contact, fixed/free opponents, bracing
-comparisons, a paired puppet view and 20-second replay with annotations.
+comparisons, live force/response/slash/RTT sliders, six-axis pilot controls,
+painted contact glow, a paired puppet view and 20-second replay with annotations.
+Use **F2** or the lower cockpit panel to tune live.
 See the [melee test card](docs/melee-headset-test.md),
 [verification](docs/melee-verification.md) and
 [design research](docs/melee-greybox-research.md).

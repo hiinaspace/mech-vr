@@ -103,3 +103,18 @@ func step(sample: Dictionary, control: MechControl, _dt: float) -> Dictionary:
 		out["vertical"] = 0.0
 		out["mode_toggle"] = false
 	return out
+
+func pilot_reservations(sample: Dictionary) -> Array[bool]:
+	## Call BEFORE PilotControls.step. A fresh arm acquisition wins when its
+	## movable handle overlaps the spring-return pilot stick or throttle.
+	var reserved: Array[bool] = [false, false]
+	if not enabled:
+		return reserved
+	var live := bool(sample.get("focused", true)) and not bool(sample.get("paused", false))
+	for i in 2:
+		reserved[i] = grabbed[i]
+		var pose: Transform3D = sample.get(HAND_KEYS[i], Transform3D.IDENTITY)
+		var fresh := float(sample.get(GRIP_KEYS[i], 0.0)) >= GRIP_PRESS and not _down[i] and _ready[i]
+		if live and bool(sample.get(VALID_KEYS[i], true)) and fresh and pose.origin.distance_to(handles[i].origin) <= CAPTURE_RADIUS:
+			reserved[i] = true
+	return reserved

@@ -155,3 +155,13 @@ creating a private GitHub repository, and pushing the milestone. The next
 design direction and project license are intentionally undecided. This is
 user acceptance of the prototype, not a claim that every physical test-card
 item or the previously blocked isolated XR retry was completed.
+
+## 2026-09-16 — melee contact feedback
+
+User reports the contact lab is promising and arm forces/compensators could work,
+with tuning still needed. Requests live force/response and slash-speed controls,
+symmetric server-authority latency simulation, readable metal and fading contact
+glow, restored six-axis stick/throttle/boost with arm-first overlap acquisition,
+and a smaller lower panel/outlined puppet with force coloring. Confirms live
+changes without resetting and ping as half outbound/half inbound RTT. This feedback
+supports the next bounded tuning pass; it is not a precision/fairness verdict.

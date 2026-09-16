@@ -14,6 +14,24 @@ var fixture: StaticBody3D
 var opponent_fixed := true
 var opponent_mode := "guard"
 var fixture_enabled := false
+## Responsiveness changes PD bandwidth independently of mechanical strength.
+var arm_response := 1.0
+## Commanded downswing radians/second; actual motion is motor/contact limited.
+var _slash_clock := 0.0
+var slash_speed := 2.5:
+	set(value):
+		# Preserve the current authored phase and its fractional progress. Changing
+		# duration must not reinterpret all elapsed fight time against a new cycle.
+		var old_duration := 3.0 / clampf(slash_speed, .25, 12.0)
+		var new_duration := 3.0 / clampf(value, .25, 12.0)
+		var phase := fposmod(_slash_clock, 2.85 + old_duration)
+		if phase >= 1.5 and phase < 1.5 + old_duration:
+			phase = 1.5 + (phase - 1.5) * new_duration / old_duration
+		elif phase >= 1.5 + old_duration:
+			phase += new_duration - old_duration
+		_slash_clock = phase
+		slash_speed = value
+var slash_phase := "guard"
 var arm_force_limit := 18000.0
 var arm_torque_limit := 18000.0
 var thrust_limit := 90000.0
@@ -21,6 +39,8 @@ var attitude_limit := 150000.0
 var motors_enabled := true
 var thrusters_enabled := true
 var desired_basis := Basis.IDENTITY
+var player_boost := false
+var boost_thrust_scale := 2.5
 var paused := false
 var _saved_velocities: Array[Dictionary] = []
 var _time := 0.0
@@ -33,9 +53,14 @@ func setup() -> void:
 	for i in 2:
 		var torso := _body("PlayerTorso" if i == 0 else "OpponentTorso", 6000.0, Vector3(4.8, 4.2, 2.5), Vector3.ZERO)
 		torso.inertia = Vector3(22000, 14000, 26000)
+		torso.set_meta("rig", i)
+		torso.set_meta("part", "torso")
 		var weapons: Array[RigidBody3D] = []
 		weapons.append(_body("Shield%d" % i, 250, SHIELD_SIZE, Vector3.ZERO))
 		weapons.append(_body("Sword%d" % i, 100, Vector3(.32, 5.7, .32), (BLADE_BASE + BLADE_TIP) * .5))
+		for h in 2:
+			weapons[h].set_meta("rig", i)
+			weapons[h].set_meta("part", "shield" if h == 0 else "sword")
 		weapons[0].inertia = Vector3(800, 400, 1100)
 		weapons[1].inertia = Vector3(450, 40, 450)
 		var members: Array[RigidBody3D] = [torso, weapons[0], weapons[1]]
@@ -45,6 +70,8 @@ func setup() -> void:
 		rigs.append({"torso": torso, "weapons": weapons, "commands": [Transform3D.IDENTITY, Transform3D.IDENTITY], "loads": [{}, {}], "thrust": Vector3.ZERO, "attitude": Vector3.ZERO})
 	fixture = StaticBody3D.new()
 	fixture.name = "ContactPlate"
+	fixture.set_meta("rig", -1)
+	fixture.set_meta("part", "fixture")
 	fixture.collision_layer = 0
 	fixture.collision_mask = LAYER
 	add_child(fixture)
@@ -102,6 +129,7 @@ func set_opponent_fixed(value: bool) -> void:
 func set_opponent_mode(value: String) -> void:
 	opponent_mode = "cut" if value == "cut" else "guard"
 	_time = 0.0
+	_slash_clock = 0.0
 	if rigs.size() > 1: rigs[1].commands[1] = _guard_pose()
 
 func set_fixture_enabled(value: bool) -> void:
@@ -117,9 +145,12 @@ func set_fixture_enabled(value: bool) -> void:
 
 func reset() -> void:
 	_time = 0.0
+	_slash_clock = 0.0
+	slash_phase = "guard"
 	_velocity_command = Vector3.ZERO
 	_angular_command = Vector3.ZERO
 	desired_basis = Basis.IDENTITY
+	player_boost = false
 	for saved in _saved_velocities:
 		saved.linear = Vector3.ZERO
 		saved.angular = Vector3.ZERO
@@ -153,36 +184,51 @@ func _physics_process(delta: float) -> void:
 	if rigs.is_empty() or paused: return
 	_time += delta
 	if opponent_mode == "cut":
-		# Slow periodic windup/cut: target moves, never the actual collision body.
-		var phase := sin(_time * TAU / 5.0)
-		rigs[1].commands[1] = Transform3D(Basis(Vector3.BACK, PI / 2 + phase * .8), Vector3(-2, 5.9, -6))
+		_slash_clock += delta
+		rigs[1].commands[1] = opponent_slash_pose(_slash_clock)
+	else:
+		slash_phase = "guard"
 	for index in rigs.size():
 		var rig := rigs[index]
 		var torso: RigidBody3D = rig.torso
-		for hand in 2: _drive_arm(rig, hand)
+		for hand in 2: _drive_arm(rig, hand, delta)
 		var desired_v := torso.global_basis * _velocity_command if index == 0 else Vector3.ZERO
 		var desired_w := torso.global_basis * _angular_command if index == 0 else Vector3.ZERO
-		var force := ((desired_v - torso.linear_velocity) * torso.mass * 3.0).limit_length(thrust_limit) if thrusters_enabled else Vector3.ZERO
+		var thrust_budget := maxf(thrust_limit, 0.0) * (clampf(boost_thrust_scale, 1.0, 4.0) if index == 0 and player_boost else 1.0)
+		var force := ((desired_v - torso.linear_velocity) * torso.mass * 3.0).limit_length(thrust_budget) if thrusters_enabled else Vector3.ZERO
 		var target_basis := desired_basis if index == 0 else Basis(Vector3.UP, PI)
 		var attitude_error := _rotation_error(target_basis, torso.global_basis)
-		var torque := (attitude_error * 90000.0 + (desired_w - torso.angular_velocity) * 60000.0).limit_length(attitude_limit) if thrusters_enabled else Vector3.ZERO
+		var torque := (attitude_error * 90000.0 + (desired_w - torso.angular_velocity) * 60000.0).limit_length(maxf(attitude_limit, 0.0)) if thrusters_enabled else Vector3.ZERO
 		if not torso.freeze:
 			torso.apply_central_force(force)
 			torso.apply_torque(torque)
 		rig.thrust = force
 		rig.attitude = torque
 
-func _drive_arm(rig: Dictionary, hand: int) -> void:
+func _drive_arm(rig: Dictionary, hand: int, delta: float) -> void:
 	var torso: RigidBody3D = rig.torso
 	var weapon: RigidBody3D = rig.weapons[hand]
 	var target: Transform3D = torso.global_transform * rig.commands[hand]
 	var lever := weapon.global_position - torso.global_position
 	var relative_v := weapon.linear_velocity - torso.linear_velocity - torso.angular_velocity.cross(lever)
 	var error := target.origin - weapon.global_position
-	# Saturated position/velocity feedback; no integrator or stored windup.
-	var force := (error.limit_length(2.0) * 11000.0 - relative_v * 2000.0).limit_length(arm_force_limit)
-	var rotation_error := _rotation_error(target.basis, weapon.global_basis)
-	var torque := (rotation_error * 14000.0 - (weapon.angular_velocity - torso.angular_velocity) * 3200.0).limit_length(arm_torque_limit)
+	# Implicit single-body PD gains keep the damping stable when bandwidth rises.
+	# Coupled bodies/contact still need finite limits and simulation validation.
+	# No integrator; clipped positional error cannot store accumulated windup.
+	var response := clampf(arm_response, .25, 4.0)
+	var kp := 11000.0 * response * response
+	var kd := 2000.0 * response
+	var denominator := 1.0 + (kd * delta + kp * delta * delta) / weapon.mass
+	var force := ((error.limit_length(2.0) * kp - relative_v * (kd + kp * delta)) / denominator).limit_length(maxf(arm_force_limit, 0.0))
+	var rotation_error := weapon.global_basis.inverse() * _rotation_error(target.basis, weapon.global_basis)
+	var relative_w := weapon.global_basis.inverse() * (weapon.angular_velocity - torso.angular_velocity)
+	kp = 14000.0 * response * response
+	kd = 3200.0 * response
+	var local_torque := Vector3.ZERO
+	for axis in 3:
+		denominator = 1.0 + (kd * delta + kp * delta * delta) / weapon.inertia[axis]
+		local_torque[axis] = (rotation_error[axis] * kp - relative_w[axis] * (kd + kp * delta)) / denominator
+	var torque := (weapon.global_basis * local_torque).limit_length(maxf(arm_torque_limit, 0.0))
 	if not motors_enabled:
 		force = Vector3.ZERO
 		torque = Vector3.ZERO
@@ -213,9 +259,17 @@ func snapshot() -> Dictionary:
 			if state:
 				# Godot uses "local" to mean this body; these are already world-space.
 				for c in state.get_contact_count():
-					contacts.append({"rig": i, "hand": h, "position": state.get_contact_local_position(c), "normal": state.get_contact_local_normal(c), "impulse": state.get_contact_impulse(c)})
-		result.append({"body": torso.global_transform, "grips": grips, "commands": commands, "loads": rig.loads.duplicate(true), "velocity": torso.linear_velocity, "angular_velocity": torso.angular_velocity, "thrust": rig.thrust, "attitude": rig.attitude})
-	return {"time": _time, "rigs": result, "contacts": contacts, "opponent_fixed": opponent_fixed, "opponent_mode": opponent_mode, "fixture_enabled": fixture_enabled, "opponent_visible": not fixture_enabled}
+					var contact := {"rig": i, "hand": h, "position": state.get_contact_local_position(c), "normal": state.get_contact_local_normal(c), "impulse": state.get_contact_impulse(c)}
+					var collider := state.get_contact_collider_object(c) as CollisionObject3D
+					if h == 1 and collider:
+						contact["saber_rig"] = i
+						contact["saber_hand"] = 1
+						contact["target_rig"] = int(collider.get_meta("rig", -1))
+						contact["target_part"] = str(collider.get_meta("part", "other"))
+						contact["target_local_position"] = collider.global_transform.affine_inverse() * state.get_contact_collider_position(c)
+					contacts.append(contact)
+		result.append({"body": torso.global_transform, "grips": grips, "commands": commands, "loads": rig.loads.duplicate(true), "velocity": torso.linear_velocity, "angular_velocity": torso.angular_velocity, "thrust": rig.thrust, "attitude": rig.attitude, "commanded_basis": desired_basis if i == 0 else Basis(Vector3.UP, PI), "boost": i == 0 and player_boost, "effective_thrust_limit": maxf(thrust_limit, 0.0) * (clampf(boost_thrust_scale, 1.0, 4.0) if i == 0 and player_boost else 1.0)})
+	return {"time": _time, "rigs": result, "contacts": contacts, "opponent_fixed": opponent_fixed, "opponent_mode": opponent_mode, "fixture_enabled": fixture_enabled, "opponent_visible": not fixture_enabled, "slash_phase": slash_phase, "tuning": tuning_snapshot()}
 
 func _rotation_error(target: Basis, actual: Basis) -> Vector3:
 	var q := (target * actual.inverse()).get_rotation_quaternion().normalized()
@@ -241,3 +295,43 @@ func set_paused(value: bool) -> void:
 
 func _guard_pose() -> Transform3D:
 	return Transform3D(Basis(Vector3.BACK, PI / 2), Vector3(-2, 5.9, -6))
+
+func opponent_slash_pose(elapsed: float) -> Transform3D:
+	# Local +Z is behind the enemy. Wind up over the shoulder, pause visibly,
+	# then sweep down/forward through a three-radian sagittal arc. Both position
+	# and orientation are requests to the same finite motors used by the player.
+	var duration := 3.0 / clampf(slash_speed, .25, 12.0)
+	var phase := fposmod(elapsed, .9 + .6 + duration + .35 + 1.0)
+	var high := Transform3D(Basis(Vector3.RIGHT, .6), Vector3(-5, 7.0, -5.0))
+	var low := Transform3D(Basis(Vector3.RIGHT, -2.4), Vector3(-5, 4.8, -6.0))
+	if phase < .9:
+		slash_phase = "windup"
+		return _guard_pose().interpolate_with(high, smoothstep(0.0, .9, phase))
+	phase -= .9
+	if phase < .6:
+		slash_phase = "ready"
+		return high
+	phase -= .6
+	if phase < duration:
+		slash_phase = "slash"
+		var fraction := phase / duration
+		return Transform3D(Basis(Vector3.RIGHT, lerpf(.6, -2.4, fraction)), high.origin.lerp(low.origin, fraction))
+	phase -= duration
+	if phase < .35:
+		slash_phase = "follow-through"
+		return low
+	slash_phase = "recover"
+	return low.interpolate_with(_guard_pose(), smoothstep(0.0, 1.0, phase - .35))
+
+func tuning_snapshot() -> Dictionary:
+	return {"arm_response": arm_response, "slash_speed": slash_speed, "arm_force_limit": arm_force_limit, "arm_torque_limit": arm_torque_limit, "thrust_limit": thrust_limit, "attitude_limit": attitude_limit}
+
+func capture_command() -> Dictionary:
+	return {"grips": rigs[0].commands.duplicate(true), "velocity": _velocity_command, "angular_velocity": _angular_command, "desired_basis": desired_basis, "boost": player_boost}
+
+func apply_command(command: Dictionary) -> void:
+	var grips: Array[Transform3D] = []
+	for pose in command.get("grips", []): grips.append(pose)
+	command_player(grips, command.get("velocity", Vector3.ZERO), command.get("angular_velocity", Vector3.ZERO))
+	desired_basis = command.get("desired_basis", desired_basis)
+	player_boost = bool(command.get("boost", false))

@@ -3,6 +3,14 @@ extends Node3D
 ## links to their actual poses, never extra simulated joints or command targets.
 const RobotRig = preload("res://scripts/robot_rig.gd")
 const Sword = preload("res://scripts/weapon_switch.gd")
+const HeatPaint = preload("res://scripts/melee_heat_paint.gd")
+var heat_painters: Dictionary = {}
+const METAL_SHADER = preload("res://shaders/melee_metal.gdshader")
+const OUTLINE_SHADER = preload("res://shaders/melee_outline.gdshader")
+var heat_marks: Dictionary = {}
+var arm_efforts: Array = [[0.0,0.0],[0.0,0.0]]
+var metal_materials: Dictionary = {}
+var miniature_arm_indices: Dictionary = {}
 const PUPPET_SCALE := .013
 const PUPPET_VIEW := Basis(Vector3.UP, deg_to_rad(145.0))
 var suits: Array[Node3D] = []
@@ -52,6 +60,8 @@ func setup() -> void:
 					material.albedo_color = Color("b76b45") if material.albedo_color.v > .3 else Color("613d36")
 					mesh.material_override = material
 
+	_setup_metal()
+
 func _collect_meshes(node: Node) -> void:
 	_find_meshes(node,leaves)
 
@@ -65,10 +75,22 @@ func setup_puppet(parent: Node3D) -> void:
 	puppet.name = "MeleePoseDisplay"
 	parent.add_child(puppet)
 	puppet.position = Vector3(.48,-.45,-1.3)
+	puppet.scale = Vector3.ONE*.72
 	for source in leaves:
 		var miniature := MeshInstance3D.new()
 		miniature.mesh = source.mesh
-		miniature.material_override = source.material_override
+		var flat := StandardMaterial3D.new()
+		flat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		var own := suits[0].is_ancestor_of(source)
+		flat.albedo_color = Color("31889e") if own else Color("b8784f")
+		var outline := ShaderMaterial.new()
+		outline.shader = OUTLINE_SHADER
+		flat.next_pass = outline
+		miniature.material_override = flat
+		for rig_index in 2:
+			for side in 2:
+				if source in [robots[rig_index].rails[side],robots[rig_index].links[side*2],robots[rig_index].links[side*2+1]]:
+					miniature_arm_indices[puppet_leaves.size()] = Vector2i(rig_index,side)
 		miniature.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		puppet.add_child(miniature)
 		puppet_leaves.append(miniature)
@@ -105,6 +127,7 @@ func update_snapshot(snapshot: Dictionary, _dt: float) -> void:
 		# reference frame. Solve visual elbows once, then copy them into the HUD.
 		robots[i].reset()
 		robots[i].update_pose(0.0,Vector3.ZERO,Vector3.ZERO,equipment[i],Basis.IDENTITY)
+	_update_appearance(snapshot,_dt)
 	_update_puppet()
 
 ## Stable layout: two suit-root world frames followed by all mesh world frames.
@@ -159,3 +182,125 @@ func _update_puppet() -> void:
 		pose.origin *= common_scale
 		pose.basis = pose.basis.scaled(Vector3.ONE*common_scale)
 		puppet_leaves[i].transform = pose
+
+## Generated once with Image.set_pixel and ImageTexture.create_from_image.
+## Contact heat uses DrawableTexture2D face-atlas painting; the compact stamp
+## history is retained for exact replay reconstruction without GPU readback.
+func _setup_metal() -> void:
+	var image := Image.create(128,128,false,Image.FORMAT_RGB8)
+	var random := RandomNumberGenerator.new()
+	random.seed = 71523
+	for y in 128:
+		var brush := random.randf_range(.3,.8)
+		for x in 128:
+			var grain := clampf(brush+random.randf_range(-.09,.09),0,1)
+			image.set_pixel(x,y,Color(grain,grain,grain))
+	image.generate_mipmaps()
+	var texture := ImageTexture.create_from_image(image)
+	for i in leaves.size():
+		var old := leaves[i].material_override as StandardMaterial3D
+		if not old or old.emission_enabled: continue
+		var material := ShaderMaterial.new()
+		material.shader = METAL_SHADER
+		material.set_shader_parameter("grain_texture",texture)
+		material.set_shader_parameter("metal_color",old.albedo_color.lerp(Color("d7dde1"),.64))
+		leaves[i].material_override = material
+		metal_materials[i] = material
+	_refresh_materials()
+
+func _update_appearance(snapshot: Dictionary, dt: float) -> void:
+	for index in heat_marks.keys():
+		var retained: Array = []
+		for mark in heat_marks[index]:
+			mark.w = maxf(0,mark.w-maxf(dt,0)*.22)
+			if mark.w > .001: retained.append(mark)
+		heat_marks[index] = retained
+	for i in 2:
+		var loads: Array = snapshot.rigs[i].get("loads",[])
+		for side in 2:
+			arm_efforts[i][side] = clampf(float(loads[side].get("effort",0)),0,1) if loads.size()>side else 0.0
+	for contact in (snapshot.get("contacts",[]) if dt>0 else []):
+		if not contact.has("saber_rig"): continue
+		var rig_index := int(contact.get("target_rig",-1))
+		if rig_index < 0 or rig_index >= 2: continue
+		var part: String = contact.get("target_part","")
+		var target: MeshInstance3D
+		if part == "torso": target = robots[rig_index].chest
+		elif part == "shield": target = equipment[rig_index][0].get_child(0)
+		else: continue
+		var index := leaves.find(target)
+		var local: Vector3 = target.to_local(contact.position)
+		var marks: Array = heat_marks.get(index,[])
+		var merged := false
+		for m in marks.size():
+			if Vector3(marks[m].x,marks[m].y,marks[m].z).distance_to(local) < .45:
+				marks[m] = Vector4(local.x,local.y,local.z,minf(1,marks[m].w+maxf(dt,0)*2.5))
+				merged = true
+				break
+		if not merged:
+			if marks.size() >= 8: marks.pop_front()
+			marks.append(Vector4(local.x,local.y,local.z,.35))
+		heat_marks[index] = marks
+	_refresh_materials()
+
+func _refresh_materials() -> void:
+	for index in metal_materials:
+		var stored: Array = heat_marks.get(index,[])
+		if not stored.is_empty() and not heat_painters.has(index):
+			heat_painters[index] = HeatPaint.new()
+			metal_materials[index].set_shader_parameter("heat_texture",heat_painters[index].texture)
+			metal_materials[index].set_shader_parameter("half_size",leaves[index].get_aabb().size*.5)
+		if heat_painters.has(index): heat_painters[index].paint(leaves[index],stored)
+		metal_materials[index].set_shader_parameter("has_heat",not stored.is_empty())
+	for index in miniature_arm_indices:
+		var arm: Vector2i = miniature_arm_indices[index]
+		var effort: float = arm_efforts[arm.x][arm.y]
+		var material := puppet_leaves[index].material_override as StandardMaterial3D
+		material.albedo_color = Color("26a87a").lerp(Color("e9b839"),minf(effort*2,1)).lerp(Color("ef3439"),maxf(0,effort*2-1))
+
+## Root records this beside visuals; replay restores it after apply_visuals.
+## No heat/damage physics is affected, and playback never integrates cooling.
+func capture_appearance() -> Dictionary:
+	var serialized: Array = []
+	for index in heat_marks:
+		for mark in heat_marks[index]:
+			serialized.append({"leaf":index,"position":Vector3(mark.x,mark.y,mark.z),"heat":mark.w})
+	return {"heat_marks":serialized,"arm_efforts":arm_efforts.duplicate(true)}
+
+func apply_appearance(appearance: Dictionary) -> void:
+	if not valid_appearance(appearance): return
+	heat_marks.clear()
+	for mark in appearance.get("heat_marks",[]):
+		var index := int(mark.leaf)
+		if not metal_materials.has(index): continue
+		var marks: Array = heat_marks.get(index,[])
+		var position: Vector3 = mark.position
+		marks.append(Vector4(position.x,position.y,position.z,float(mark.heat)))
+		heat_marks[index] = marks
+	arm_efforts = appearance.get("arm_efforts",[[0.0,0.0],[0.0,0.0]]).duplicate(true)
+	_refresh_materials()
+
+func reset_appearance() -> void:
+	apply_appearance({})
+
+func valid_appearance(appearance: Dictionary) -> bool:
+	var marks = appearance.get("heat_marks",[])
+	var efforts = appearance.get("arm_efforts",[[0.0,0.0],[0.0,0.0]])
+	if not marks is Array or marks.size()>leaves.size()*8: return false
+	if not efforts is Array or efforts.size()!=2: return false
+	for pair in efforts:
+		if not pair is Array or pair.size()!=2: return false
+		for value in pair:
+			if not (value is float or value is int) or not is_finite(float(value)) or value<0 or value>1: return false
+	var counts: Dictionary = {}
+	for mark in marks:
+		if not mark is Dictionary: return false
+		var index = mark.get("leaf")
+		var position = mark.get("position")
+		var heat = mark.get("heat")
+		if not (index is int or index is float) or not is_finite(float(index)) or int(index)!=index or not metal_materials.has(int(index)): return false
+		if not position is Vector3 or not position.is_finite(): return false
+		if not (heat is float or heat is int) or not is_finite(float(heat)) or heat<0 or heat>1: return false
+		counts[index] = int(counts.get(index,0))+1
+		if counts[index]>8: return false
+	return true

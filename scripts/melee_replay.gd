@@ -176,6 +176,10 @@ func _interpolate(a: Variant, b: Variant, weight: float) -> Variant:
 		if absf(a.basis.determinant()) < 0.000001 or absf(b.basis.determinant()) < 0.000001:
 			return a
 		return a.interpolate_with(b, weight)
+	if a is Basis:
+		if absf(a.determinant()) < 0.000001 or absf(b.determinant()) < 0.000001:
+			return a
+		return Transform3D(a, Vector3.ZERO).interpolate_with(Transform3D(b, Vector3.ZERO), weight).basis
 	if a is Vector3:
 		return a.lerp(b, weight)
 	if a is float:
@@ -197,6 +201,8 @@ func _interpolate(a: Variant, b: Variant, weight: float) -> Variant:
 func _encode(value: Variant) -> Variant:
 	if value is int:
 		return {"$type": "int", "value": [str(value)]}
+	if value is Basis:
+		return {"$type": "Basis", "value": [_encode(value.x), _encode(value.y), _encode(value.z)]}
 	if value is Transform3D:
 		return {"$type": "Transform3D", "value": [_encode(value.basis.x), _encode(value.basis.y), _encode(value.basis.z), _encode(value.origin)]}
 	if value is Vector3:
@@ -245,6 +251,10 @@ func _decode(value: Variant, depth: int = 0) -> Variant:
 			"Vector3":
 				if fields.size() == 3 and _number(fields[0]) and _number(fields[1]) and _number(fields[2]):
 					return Vector3(fields[0], fields[1], fields[2])
+			"Basis":
+				var decoded = _decode(fields, depth + 1)
+				if decoded.size() == 3 and decoded[0] is Vector3 and decoded[1] is Vector3 and decoded[2] is Vector3:
+					return Basis(decoded[0], decoded[1], decoded[2])
 			"Transform3D":
 				var decoded = _decode(fields, depth + 1)
 				if decoded.size() == 4 and decoded[0] is Vector3 and decoded[1] is Vector3 and decoded[2] is Vector3 and decoded[3] is Vector3:
@@ -257,6 +267,8 @@ func _decode(value: Variant, depth: int = 0) -> Variant:
 	return null
 
 func _supported(value: Variant, depth: int = 0) -> bool:
+	if value is Basis:
+		return value.is_finite()
 	if depth > 24:
 		return false
 	if value is Transform3D:
