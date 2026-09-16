@@ -1,3 +1,44 @@
+# Beam absorption and lighting pass
+
+- Sabers physically collide only with other sabers. An independent full-length
+  beam/box query selects the first opposing armor surface from the hilt; both
+  rendered and physical beam length end there. Armor itself gives no saber impact
+  impulse. The query still runs while shortened, preserving stationary dwell.
+- Visual heat now deposits 2.5 units/second during overlap, without an initial
+  hit bonus. Duplicate contact records cannot multiply a saber's per-tick budget.
+  Hot patches stay attached to the surface and cool as before. No damage is added.
+- Overhead slash raised/lowered targets moved from local X=-5 to X=+5, matching
+  the sword/right shoulder. Existing live-speed phase continuity remains intact.
+- Added one offset suit-mounted spotlight with shadows for directional shape
+  cues. It follows delivered/recorded suit poses. Original range lighting and
+  renderer settings remain unchanged.
+
+## Evidence
+
+All 25 test scripts pass in `artifacts/melee-beam-suite.log`, including 45 physical
+checks, 182 authority/movement/beam integration checks and 39 lifecycle checks.
+Actual-world tests establish nonblocking shield absorption without solver impulse,
+continued heat while shortened, nearest-of-multiple-surface selection, restored
+length on withdrawal, and no invisible blade clash behind the plate. Exposed
+beam clashes still transfer force. Appearance tests compare short-swipe deposited
+heat at 60/120 Hz, exact short dwell, clipping and replay/live restoration.
+Replay export/import preserves clipped visuals, overlap metadata and heat.
+
+Rendered cockpit/replay captures in `artifacts/melee-cockpit.png` and
+`melee-replay.png` were inspected; `melee-beam-render.log` exits cleanly. Isolated
+XR evidence is in `artifacts/melee-beam-xr.log`; startup/tracking succeeds with
+the previously documented engine shutdown diagnostics. This does not establish
+headset comfort, full-resolution frame timing or feel of the revised contacts.
+
+The simplified armor is still torso/shield boxes; own armor is ignored. Queries
+sample a zero-width centerline each physics tick, so grazing contacts and very
+fast sub-tick crossings are not continuous volumetric burn simulation. Shape
+length follows the solver update cadence. No new health, ablation or heat-transfer
+model is implied. The slab clips beams but is not part of the painted robot atlas.
+See [the test card](melee-headset-test.md) for the new comparisons.
+
+---
+
 # Melee tuning pass — 2026-09-16
 
 User feedback described arm forces/compensators as promising and authorized this

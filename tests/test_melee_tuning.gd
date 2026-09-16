@@ -144,6 +144,56 @@ func run() -> void:
 	input.current.brake = true
 	await step()
 	check(not scene.physics.player_boost, "brake wins over boost at authority")
+	# Isolate armor absorption in the actual world: overlapping beam and shield,
+	# no actuator/thruster force and no other geometry near the two test bodies.
+	scene._reset()
+	scene._set_rtt(0)
+	scene.physics.motors_enabled = false
+	scene.physics.thrusters_enabled = false
+	input.current.left_grip = 0.0
+	input.current.right_grip = 0.0
+	input.current.left_trigger = 0.0
+	input.current.brake = false
+	scene._toggle_pause()
+	var serial := 0
+	for rig in scene.physics.rigs:
+		for body in [rig.torso,rig.weapons[0],rig.weapons[1]]:
+			body.global_transform = Transform3D(Basis.IDENTITY,Vector3(100+serial*30,0,0))
+			body.linear_velocity = Vector3.ZERO
+			body.angular_velocity = Vector3.ZERO
+			serial += 1
+	var saber: RigidBody3D = scene.physics.rigs[0].weapons[1]
+	var armor: RigidBody3D = scene.physics.rigs[1].weapons[0]
+	saber.global_transform = Transform3D.IDENTITY
+	armor.global_transform = Transform3D(Basis.IDENTITY,Vector3(0,4,0))
+	scene._flush_delay()
+	await steps(12)
+	var absorb: Dictionary = scene.physics.snapshot()
+	check(absorb.beam_contacts.size() == 1 and absorb.beam_contacts[0].target_part == "shield", "actual armor overlap creates one nearest beam absorption")
+	check(absorb.contacts.is_empty(), "armor overlap does not create solver contacts")
+	check(saber.linear_velocity.is_zero_approx() and saber.angular_velocity.is_zero_approx() and armor.linear_velocity.is_zero_approx() and armor.angular_velocity.is_zero_approx(), "beam armor overlap transfers no mechanical impulse")
+	var appearance: Dictionary = scene.view.capture_appearance()
+	check(not appearance.heat_marks.is_empty() and appearance.heat_marks[0].heat > 0, "stationary armor overlap accumulates visual dwell heat")
+	var outer_beam: MeshInstance3D = scene.view.sword_visuals[0].get_child(2)
+	var clipped_scale: Vector3 = outer_beam.scale
+	check(clipped_scale.y > 0 and clipped_scale.y < 1, "visible beam shortens to nearest armor entry")
+	scene._begin_replay()
+	# Rewind one sampled frame to ensure playback really restores saved visuals.
+	scene.recorder.scrub(maxf(0,scene.recorder.duration()-.04))
+	await step()
+	var replay_state: Dictionary = scene.recorder.sample()
+	check(replay_state.beam_contacts.size() == 1 and replay_state.rigs[0].blade_fraction < 1, "replay retains beam overlap and clipping schema")
+	check(outer_beam.scale.is_equal_approx(clipped_scale), "replay restores shortened beam mesh")
+	var replay_heat: Array = scene.view.capture_appearance().heat_marks
+	check(replay_heat.size() == replay_state.appearance.heat_marks.size() and is_equal_approx(replay_heat[0].heat,replay_state.appearance.heat_marks[0].heat) and replay_heat[0].position.is_equal_approx(replay_state.appearance.heat_marks[0].position), "replay restores recorded heat without recomputing dwell")
+	var replay_path := "user://melee-absorption-test.json"
+	check(scene.recorder.save_file(replay_path,{"test":"beam armor absorption"}) == OK, "beam and heat replay exports")
+	check(scene.load_replay_file(replay_path) == OK, "beam and heat replay imports through lab validator")
+	scene.recorder.scrub(scene.recorder.duration())
+	await step()
+	check(scene.recorder.sample().beam_contacts.size() == 1 and not scene.view.capture_appearance().heat_marks.is_empty(), "imported replay preserves beam contacts and heat")
+	check(outer_beam.scale.is_equal_approx(clipped_scale), "imported replay preserves clipped beam visuals")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(replay_path))
 	scene.queue_free()
 	await process_frame
 	print("MELEE_TUNING_TEST checks=%d failures=%d" % [checks,failures])

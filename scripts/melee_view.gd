@@ -17,6 +17,8 @@ var suits: Array[Node3D] = []
 var robots: Array[Node3D] = []
 var equipment: Array = []
 var leaves: Array[MeshInstance3D] = []
+var rest_leaf_transforms: Array[Transform3D] = []
+var sword_visuals: Array[Node3D] = []
 var puppet_leaves: Array[MeshInstance3D] = []
 var puppet: Node3D
 
@@ -44,6 +46,7 @@ func setup() -> void:
 		var sword := Sword.new()
 		sword.sword = true
 		sword.setup_visual(grips[1])
+		sword_visuals.append(sword.visual_root)
 		# Mesh emission survives exact pose replay; transient lighting is owned by
 		# the lab contact effects, outside this mesh-only replay representation.
 		sword.visual_root.get_node("SwordGlow").visible = false
@@ -60,6 +63,7 @@ func setup() -> void:
 					material.albedo_color = Color("b76b45") if material.albedo_color.v > .3 else Color("613d36")
 					mesh.material_override = material
 
+	for leaf in leaves: rest_leaf_transforms.append(leaf.transform)
 	_setup_metal()
 
 func _collect_meshes(node: Node) -> void:
@@ -116,7 +120,9 @@ func update_snapshot(snapshot: Dictionary, _dt: float) -> void:
 	if rigs.size() < 2: return
 	# Replay may hide arbitrary leaves. Restore baseline, then let the visual
 	# rig set its conditional rails/flames from this live pose again.
-	for leaf in leaves: leaf.visible = true
+	for i in leaves.size():
+		leaves[i].visible = true
+		leaves[i].transform = rest_leaf_transforms[i]
 	suits[0].visible = true
 	suits[1].visible = bool(snapshot.get("opponent_visible",true))
 	for i in 2:
@@ -127,6 +133,7 @@ func update_snapshot(snapshot: Dictionary, _dt: float) -> void:
 		# reference frame. Solve visual elbows once, then copy them into the HUD.
 		robots[i].reset()
 		robots[i].update_pose(0.0,Vector3.ZERO,Vector3.ZERO,equipment[i],Basis.IDENTITY)
+		_set_blade_fraction(i,float(rigs[i].get("blade_fraction",1.0)))
 	_update_appearance(snapshot,_dt)
 	_update_puppet()
 
@@ -219,8 +226,10 @@ func _update_appearance(snapshot: Dictionary, dt: float) -> void:
 		var loads: Array = snapshot.rigs[i].get("loads",[])
 		for side in 2:
 			arm_efforts[i][side] = clampf(float(loads[side].get("effort",0)),0,1) if loads.size()>side else 0.0
-	for contact in (snapshot.get("contacts",[]) if dt>0 else []):
-		if not contact.has("saber_rig"): continue
+	var heated_sabers: Dictionary = {}
+	for contact in (snapshot.get("beam_contacts",[]) if dt>0 else []):
+		if not contact.has("saber_rig") or heated_sabers.has(contact.saber_rig): continue
+		heated_sabers[contact.saber_rig] = true
 		var rig_index := int(contact.get("target_rig",-1))
 		if rig_index < 0 or rig_index >= 2: continue
 		var part: String = contact.get("target_part","")
@@ -234,12 +243,12 @@ func _update_appearance(snapshot: Dictionary, dt: float) -> void:
 		var merged := false
 		for m in marks.size():
 			if Vector3(marks[m].x,marks[m].y,marks[m].z).distance_to(local) < .45:
-				marks[m] = Vector4(local.x,local.y,local.z,minf(1,marks[m].w+maxf(dt,0)*2.5))
+				marks[m].w = minf(1,marks[m].w+dt*2.5)
 				merged = true
 				break
 		if not merged:
 			if marks.size() >= 8: marks.pop_front()
-			marks.append(Vector4(local.x,local.y,local.z,.35))
+			marks.append(Vector4(local.x,local.y,local.z,minf(1,dt*2.5)))
 		heat_marks[index] = marks
 	_refresh_materials()
 
@@ -304,3 +313,16 @@ func valid_appearance(appearance: Dictionary) -> bool:
 		counts[index] = int(counts.get(index,0))+1
 		if counts[index]>8: return false
 	return true
+
+## Beam-shell meshes terminate at the first armor entry. The solver/query blade
+## remains full length; these are exclusively rendered geometry transforms.
+func _set_blade_fraction(rig_index: int, fraction: float) -> void:
+	var end := .65+5.7*clampf(fraction,0,1)
+	for part in 2:
+		var mesh := sword_visuals[rig_index].get_child(part+2) as MeshInstance3D
+		var base := .65 if part==0 else .75
+		var full := 5.7 if part==0 else 5.5
+		var length := clampf(end-base,0,full)
+		mesh.visible = length>.001
+		mesh.position = Vector3(0,base+length*.5,-.15)
+		mesh.scale = Vector3(1,maxf(.0001,length/full),1)

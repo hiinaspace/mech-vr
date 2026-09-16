@@ -36,7 +36,7 @@ func run() -> void:
 	var rigs: Array = []
 	for body in [Transform3D.IDENTITY,Transform3D(Basis(Vector3.UP,PI),Vector3(0,0,-13))]:
 		rigs.append({"body":body,"grips":[body*Transform3D(Basis.IDENTITY,Vector3(-5,2.9,-6)),body*Transform3D(Basis.IDENTITY,Vector3(5,2.9,-6))],"loads":[{"effort":.25},{"effort":1.0}]})
-	var snapshot := {"rigs":rigs,"contacts":[{"saber_rig":1,"target_rig":0,"target_part":"torso","position":Vector3(0,0,1.25)}]}
+	var snapshot := {"rigs":rigs,"beam_contacts":[{"saber_rig":1,"target_rig":0,"target_part":"torso","position":Vector3(0,0,1.25)}]}
 	for i in 40: view.update_snapshot(snapshot,1.0/90)
 	var hot: Dictionary = view.capture_appearance()
 	check(hot.heat_marks.size()==1,"Repeated contact merges localized heat")
@@ -51,7 +51,7 @@ func run() -> void:
 	replay.record(.1,{"appearance":hot})
 	check(replay.begin_replay(),"Appearance recorded in replay")
 	check(replay.save_file("/tmp/melee-appearance-replay.json")==OK,"Appearance is replay-file serializable")
-	snapshot.contacts = []
+	snapshot.beam_contacts = []
 	view.update_snapshot(snapshot,2.0)
 	check(view.capture_appearance().heat_marks[0].heat < hot.heat_marks[0].heat,"Contact heat fades")
 	view.apply_appearance(hot)
@@ -75,9 +75,44 @@ func run() -> void:
 	check(not view.valid_appearance({"arm_efforts":[[NAN,0],[0,0]]}),"Nonfinite imported effort is rejected")
 	view.reset_appearance()
 	check(view.capture_appearance().heat_marks.is_empty(),"Reset clears previous encounter heat")
-	snapshot.contacts = [{"saber_rig":1,"target_rig":0,"target_part":"torso","position":Vector3(0,0,1.25)}]
+	snapshot.beam_contacts = [{"saber_rig":1,"target_rig":0,"target_part":"torso","position":Vector3(0,0,1.25)}]
 	view.update_snapshot(snapshot,0.0)
 	check(view.capture_appearance().heat_marks.is_empty(),"Repeated paused snapshot cannot create new heat")
+	# Heating is a per-second budget, independent of how many records or new
+	# spatial stamps a fast sweep produces. There is no impact flash injection.
+	for hz in [60,120]:
+		view.reset_appearance()
+		for tick in int(.1*hz):
+			var point := Vector3(-1.5+3.0*tick/(.1*hz),0,1.25)
+			var contact := {"saber_rig":1,"target_rig":0,"target_part":"torso","position":point}
+			snapshot.beam_contacts = [contact,contact.duplicate()]
+			view.update_snapshot(snapshot,1.0/hz)
+		var sum := 0.0
+		for mark in view.capture_appearance().heat_marks: sum += float(mark.heat)
+		check(sum<=.25001,"Fast swipe deposit is bounded by dwell seconds, not sample or duplicate count")
+	view.reset_appearance()
+	snapshot.beam_contacts = [{"saber_rig":1,"target_rig":0,"target_part":"torso","position":Vector3(0,0,1.25)}]
+	view.update_snapshot(snapshot,.01)
+	check(is_equal_approx(view.capture_appearance().heat_marks[0].heat,.025),"First contact deposits exactly ten milliseconds of heat")
+	var anchored: Vector3 = view.capture_appearance().heat_marks[0].position
+	snapshot.beam_contacts[0].position += Vector3(.3,0,0)
+	view.update_snapshot(snapshot,.01)
+	check(view.capture_appearance().heat_marks[0].position==anchored,"Moving contact cannot drag accumulated hot patch along surface")
+	rigs[0].blade_fraction = .4
+	view.update_snapshot(snapshot,0)
+	var shell: MeshInstance3D = view.sword_visuals[0].get_child(2)
+	check(is_equal_approx(shell.position.y+shell.scale.y*2.85,.65+5.7*.4),"Rendered beam ends at first armor entry")
+	var clipped: Array = view.capture_visuals()
+	rigs[0].blade_fraction = 1.0
+	view.update_snapshot(snapshot,0)
+	view.apply_visuals(clipped)
+	var restored_clip: Array = view.capture_visuals()
+	for index in clipped.size(): check(restored_clip[index].is_equal_approx(clipped[index]),"Replay retains clipped visual beam length")
+	view.update_snapshot(snapshot,0)
+	check(is_equal_approx(shell.position.y+shell.scale.y*2.85,6.35),"Live beam restores full geometry after clipped replay")
+	rigs[0].blade_fraction = 0.0
+	view.update_snapshot(snapshot,0)
+	check(not shell.visible,"Blade beginning inside armor has no visible penetration")
 	world.queue_free()
 	print("MELEE_APPEARANCE_TESTS failures=",failures)
 	quit(1 if failures else 0)

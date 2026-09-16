@@ -26,30 +26,33 @@ func run() -> void:
 	check(lab.rigs[1].torso.position.x > 90 and not lab.snapshot().opponent_visible, "Slab comparison isolates opponent collisions and marks it hidden")
 	lab.command_player(commands(-9), Vector3.ZERO, Vector3.ZERO)
 	var contacts := 0
-	var contact_positions_valid := true
-	var contact_metadata_valid := true
+	var overlaps := 0
 	for i in 240:
 		await step(1)
-		var current_contacts: Array = lab.snapshot().contacts
-		contacts += current_contacts.size()
-		for contact in current_contacts:
-			contact_positions_valid = contact_positions_valid and absf(contact.position.z + 6.7) < .3
-			contact_metadata_valid = contact_metadata_valid and contact.get("target_part", "") == "fixture" and contact.get("saber_rig", -1) == 0 and absf(contact.target_local_position.z - .3) < .2
-	check(contacts > 0, "Solver reports actual blade/plate contact")
-	check(contact_positions_valid, "Reported contacts are world-space on the plate surface")
-	check(contact_metadata_valid, "Saber contacts identify target and local heat position")
-	var blade_min_z := INF
-	for x in [-.16, .16]:
-		for y in [.65, 6.35]:
-			for z in [-.31, .01]:
-				blade_min_z = minf(blade_min_z, (sword.global_transform * Vector3(x,y,z)).z)
-	check(blade_min_z > -6.8, "Plate blocks actual blade volume, including when grip deflects behind blade")
-	check(lab.rigs[0].loads[1].error > .5, "Obstruction produces readable command error")
-	check(lab.rigs[0].loads[1].force.length() <= lab.arm_force_limit + .1, "Arm force remains finite under obstruction")
+		contacts += lab.snapshot().contacts.size()
+		overlaps += lab.snapshot().beam_contacts.size()
+	check(contacts == 0 and overlaps > 0, "Sword passes through armor with overlap, without solver impact")
+	check(sword.global_position.z < -8.8 and lab.rigs[0].loads[1].error < .1, "Plate does not mechanically block saber motion")
+	# Point the full beam through the plate and hold absolutely stationary.
+	var dwell_commands := commands(-4)
+	dwell_commands[1].basis = Basis(Vector3.RIGHT, -PI / 2)
+	lab.command_player(dwell_commands, Vector3.ZERO, Vector3.ZERO)
+	await step(240)
+	var dwell_hits := 0
+	var local_valid := true
+	for i in 90:
+		await step(1)
+		for hit in lab.snapshot().beam_contacts:
+			if hit.saber_rig == 0:
+				dwell_hits += 1
+				local_valid = local_valid and hit.target_part == "fixture" and absf(hit.target_local_position.z - .3) < .01 and hit.blade_fraction > 0 and hit.blade_fraction < 1 and not hit.has("impulse")
+	check(dwell_hits == 90 and local_valid, "Full beam query sustains stationary dwell at nearest entry without impact damage")
+	var sword_shape := sword.get_child(0) as CollisionShape3D
+	check((sword_shape.shape as BoxShape3D).size.y < 5.7, "Absorbed beam physically clips at armor entry")
 	lab.command_player(commands(-4), Vector3.ZERO, Vector3.ZERO)
-	await step(200)
-	check(sword.global_position.z > -5.5, "Withdrawal releases physical contact")
-	check(sword.linear_velocity.length() < 2, "Release settles without accumulated spring windup")
+	await step(240)
+	check(lab.snapshot().beam_contacts.is_empty() and is_equal_approx((sword_shape.shape as BoxShape3D).size.y, 5.7), "Withdrawal restores full beam and ends dwell")
+	check(sword.linear_velocity.length() < 2, "Withdrawal settles without accumulated spring windup")
 	lab.set_paused(true)
 	var stopped := sword.global_transform
 	await step(10)
@@ -118,6 +121,7 @@ func run() -> void:
 	var middle := lab.opponent_slash_pose(2.0)
 	var low := lab.opponent_slash_pose(2.55)
 	check((high * Physics.BLADE_TIP).y > 11 and (low * Physics.BLADE_TIP).y < 1, "Overhead slash spans raised blade through low follow-through")
+	check(high.origin.x > 0 and low.origin.x > 0, "Slash winds up over the right shoulder in enemy-local coordinates")
 	check((middle * Physics.BLADE_TIP).z < -9, "Slash sweeps forward from the enemy, not sideways")
 	lab.slash_speed = 6.0
 	var fast_low := lab.opponent_slash_pose(2.05)
@@ -167,9 +171,10 @@ func run() -> void:
 	await step(10)
 	check(lab.rigs[0].loads[1].error > fast_error, "Low mechanical force cap limits high-response tracking")
 	lab.arm_force_limit = 100000
-	lab.set_fixture_enabled(true)
+	lab.set_fixture_enabled(false)
+	lab.set_opponent_mode("guard")
 	lab.reset()
-	lab.command_player(commands(-9), Vector3.ZERO, Vector3.ZERO)
+	lab.command_player(commands(-8), Vector3.ZERO, Vector3.ZERO)
 	var bounded := true
 	contacts = 0
 	for i in 180:
@@ -179,7 +184,7 @@ func run() -> void:
 			for load in rig.loads:
 				bounded = bounded and load.force.is_finite() and load.torque.is_finite() and load.force.length() <= lab.arm_force_limit + .1 and load.torque.length() <= lab.arm_torque_limit + .1
 	check(bounded and contacts > 0, "High response/strength remains finite under physical contact")
-	# Actual saber-body and saber-shield contacts carry target-local information.
+	# Armor overlaps carry target-local information without physical contact.
 	lab.set_fixture_enabled(false)
 	lab.reset()
 	lab.motors_enabled = false
@@ -190,12 +195,12 @@ func run() -> void:
 	var torso_contact := false
 	for i in 100:
 		await step(1)
-		for contact in lab.snapshot().contacts:
+		for contact in lab.snapshot().beam_contacts:
 			if contact.get("target_part", "") == "torso" and contact.get("target_rig", -1) == 1:
 				torso_contact = true
 				check(contact.target_local_position.is_finite(), "Torso heat position is finite")
 		if torso_contact: break
-	check(torso_contact, "Actual saber-torso contact exposes target metadata")
+	check(torso_contact, "Saber-torso overlap exposes target metadata")
 	lab.reset()
 	lab.rigs[1].weapons[0].freeze = true
 	lab.rigs[1].weapons[1].position.x += 100
@@ -204,11 +209,11 @@ func run() -> void:
 	var shield_contact := false
 	for i in 100:
 		await step(1)
-		for contact in lab.snapshot().contacts:
+		for contact in lab.snapshot().beam_contacts:
 			if contact.get("target_part", "") == "shield" and contact.get("target_rig", -1) == 1:
 				shield_contact = true
 		if shield_contact: break
-	check(shield_contact, "Actual saber-shield contact exposes target metadata")
+	check(shield_contact, "Saber-shield overlap exposes target metadata")
 	lab.rigs[1].weapons[0].freeze = false
 	lab.reset()
 	torso.freeze = false
@@ -225,6 +230,33 @@ func run() -> void:
 	lab.desired_basis = Basis(Vector3.UP, .4)
 	lab.apply_command(saved_command)
 	check(lab.player_boost and lab.snapshot().rigs[0].commanded_basis.is_equal_approx(Basis.IDENTITY), "Command capture/application retains authority orientation and boost")
+	# Analytic query: transformed boxes, nearest entry, no hit behind the tip,
+	# and an emitter already inside armor are explicit geometric cases.
+	var box_frame := Transform3D(Basis(Vector3.UP, .7), Vector3(3,2,-4))
+	var hit := Physics.segment_box_entry(box_frame * Vector3(0,0,3), box_frame * Vector3(0,0,-3), box_frame, Vector3(2,2,2))
+	check(not hit.is_empty() and is_equal_approx(hit.distance,2.0) and hit.target_local_position.distance_to(Vector3(0,0,1)) < .001, "Oriented armor query returns nearest entry from beam base")
+	check(Physics.segment_box_entry(Vector3(0,0,3),Vector3(0,0,2),Transform3D.IDENTITY,Vector3.ONE*2).is_empty(), "Armor beyond full beam tip is ignored")
+	hit = Physics.segment_box_entry(Vector3.ZERO,Vector3(0,0,-3),Transform3D.IDENTITY,Vector3.ONE*2)
+	check(hit.starts_inside and is_zero_approx(hit.blade_fraction), "Beam starting inside armor absorbs immediately at base")
+	lab.thrusters_enabled = false
+	lab.reset()
+	lab.motors_enabled = false
+	sword.global_transform = Transform3D(Basis(Vector3.RIGHT,-PI/2),Vector3(0,0,-6))
+	lab.rigs[1].weapons[0].global_position = Vector3(0,0,-9)
+	var nearest: Array[Dictionary] = lab.query_beam_contacts()
+	check(not nearest.is_empty() and nearest[0].target_part == "shield", "Nearest armor entry shields a deeper torso from the same beam")
+	lab.rigs[1].weapons[0].global_position = Vector3(0,0,-15)
+	nearest = lab.query_beam_contacts()
+	check(not nearest.is_empty() and nearest[0].target_part == "torso", "Moving shield behind torso selects torso entry instead")
+	lab.set_fixture_enabled(true)
+	lab.reset()
+	lab.motors_enabled = false
+	sword.global_transform = Transform3D(Basis(Vector3.RIGHT,-PI/2), Vector3(5,2.9,-4))
+	lab.rigs[1].weapons[1].global_transform = Transform3D(Basis.IDENTITY,Vector3(5,1,-8))
+	lab.rigs[1].weapons[1].freeze = true
+	await step(20)
+	check(lab.snapshot().contacts.is_empty() and lab.snapshot().beam_contacts.size() > 0, "Invisible downstream beam cannot clash behind absorbing armor")
+	check(lab.snapshot().rigs[0].blade_fraction < 1 and (sword_shape.shape as BoxShape3D).size.y < 5.7, "Full query still heats armor while visible and collision beams stay clipped")
 	lab.queue_free()
 	print("MELEE_PHYSICS_CHECKS %d failures=%d" % [checks, failures])
 	quit(1 if failures else 0)

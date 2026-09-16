@@ -9,6 +9,9 @@ const SHIELD_SIZE := Vector3(4, 6, .4)
 const COCKPIT_OFFSET := Vector3(0, 4.9, -1)
 const NEUTRALS := [Vector3(-5, 2.9, -6), Vector3(5, 2.9, -6)]
 const LAYER := 16
+const BEAM_LAYER := 32
+const TORSO_SIZE := Vector3(4.8, 4.2, 2.5)
+const FIXTURE_SIZE := Vector3(7, 10, .6)
 var rigs: Array[Dictionary] = []
 var fixture: StaticBody3D
 var opponent_fixed := true
@@ -51,7 +54,7 @@ func setup() -> void:
 	if not rigs.is_empty(): return
 	process_physics_priority = 100
 	for i in 2:
-		var torso := _body("PlayerTorso" if i == 0 else "OpponentTorso", 6000.0, Vector3(4.8, 4.2, 2.5), Vector3.ZERO)
+		var torso := _body("PlayerTorso" if i == 0 else "OpponentTorso", 6000.0, TORSO_SIZE, Vector3.ZERO)
 		torso.inertia = Vector3(22000, 14000, 26000)
 		torso.set_meta("rig", i)
 		torso.set_meta("part", "torso")
@@ -63,6 +66,9 @@ func setup() -> void:
 			weapons[h].set_meta("part", "shield" if h == 0 else "sword")
 		weapons[0].inertia = Vector3(800, 400, 1100)
 		weapons[1].inertia = Vector3(450, 40, 450)
+		# Beam fields resist other beam fields, but armor only absorbs energy.
+		weapons[1].collision_layer = BEAM_LAYER
+		weapons[1].collision_mask = BEAM_LAYER
 		var members: Array[RigidBody3D] = [torso, weapons[0], weapons[1]]
 		for a in members:
 			for b in members:
@@ -73,10 +79,10 @@ func setup() -> void:
 	fixture.set_meta("rig", -1)
 	fixture.set_meta("part", "fixture")
 	fixture.collision_layer = 0
-	fixture.collision_mask = LAYER
+	fixture.collision_mask = 0
 	add_child(fixture)
 	fixture.position = Vector3(5, 4.9, -7)
-	_shape(fixture, Vector3(7, 10, .6), Vector3.ZERO)
+	_shape(fixture, FIXTURE_SIZE, Vector3.ZERO)
 	reset()
 
 func _body(label: String, body_mass: float, size: Vector3, shape_offset: Vector3) -> RigidBody3D:
@@ -135,7 +141,9 @@ func set_opponent_mode(value: String) -> void:
 func set_fixture_enabled(value: bool) -> void:
 	var changed := value != fixture_enabled
 	fixture_enabled = value
-	if is_instance_valid(fixture): fixture.collision_layer = LAYER if value else 0
+	if is_instance_valid(fixture):
+		fixture.collision_layer = LAYER if value else 0
+		fixture.collision_mask = LAYER if value else 0
 	# A slab comparison isolates that fixture: keep all enemy collisions far
 	# away. Scenario changes already reset in the lab; this also works standalone.
 	if changed and rigs.size() > 1:
@@ -171,6 +179,7 @@ func reset() -> void:
 			_clear_body(rig.weapons[hand], body_frame * command)
 			rig.loads[hand] = {"force": Vector3.ZERO, "torque": Vector3.ZERO, "error": 0.0, "effort": 0.0}
 		set_opponent_fixed(opponent_fixed)
+	_update_beam_shapes(query_beam_contacts())
 
 func _clear_body(body: RigidBody3D, pose: Transform3D) -> void:
 	body.global_transform = pose
@@ -183,6 +192,7 @@ func _clear_body(body: RigidBody3D, pose: Transform3D) -> void:
 func _physics_process(delta: float) -> void:
 	if rigs.is_empty() or paused: return
 	_time += delta
+	_update_beam_shapes(query_beam_contacts())
 	if opponent_mode == "cut":
 		_slash_clock += delta
 		rigs[1].commands[1] = opponent_slash_pose(_slash_clock)
@@ -269,7 +279,10 @@ func snapshot() -> Dictionary:
 						contact["target_local_position"] = collider.global_transform.affine_inverse() * state.get_contact_collider_position(c)
 					contacts.append(contact)
 		result.append({"body": torso.global_transform, "grips": grips, "commands": commands, "loads": rig.loads.duplicate(true), "velocity": torso.linear_velocity, "angular_velocity": torso.angular_velocity, "thrust": rig.thrust, "attitude": rig.attitude, "commanded_basis": desired_basis if i == 0 else Basis(Vector3.UP, PI), "boost": i == 0 and player_boost, "effective_thrust_limit": maxf(thrust_limit, 0.0) * (clampf(boost_thrust_scale, 1.0, 4.0) if i == 0 and player_boost else 1.0)})
-	return {"time": _time, "rigs": result, "contacts": contacts, "opponent_fixed": opponent_fixed, "opponent_mode": opponent_mode, "fixture_enabled": fixture_enabled, "opponent_visible": not fixture_enabled, "slash_phase": slash_phase, "tuning": tuning_snapshot()}
+	var beam_contacts := query_beam_contacts()
+	for rig in result: rig["blade_fraction"] = 1.0
+	for contact in beam_contacts: result[contact.saber_rig].blade_fraction = contact.blade_fraction
+	return {"time": _time, "rigs": result, "contacts": contacts, "beam_contacts": beam_contacts, "opponent_fixed": opponent_fixed, "opponent_mode": opponent_mode, "fixture_enabled": fixture_enabled, "opponent_visible": not fixture_enabled, "slash_phase": slash_phase, "tuning": tuning_snapshot()}
 
 func _rotation_error(target: Basis, actual: Basis) -> Vector3:
 	var q := (target * actual.inverse()).get_rotation_quaternion().normalized()
@@ -302,8 +315,8 @@ func opponent_slash_pose(elapsed: float) -> Transform3D:
 	# and orientation are requests to the same finite motors used by the player.
 	var duration := 3.0 / clampf(slash_speed, .25, 12.0)
 	var phase := fposmod(elapsed, .9 + .6 + duration + .35 + 1.0)
-	var high := Transform3D(Basis(Vector3.RIGHT, .6), Vector3(-5, 7.0, -5.0))
-	var low := Transform3D(Basis(Vector3.RIGHT, -2.4), Vector3(-5, 4.8, -6.0))
+	var high := Transform3D(Basis(Vector3.RIGHT, .6), Vector3(5, 7.0, -5.0))
+	var low := Transform3D(Basis(Vector3.RIGHT, -2.4), Vector3(5, 4.8, -6.0))
 	if phase < .9:
 		slash_phase = "windup"
 		return _guard_pose().interpolate_with(high, smoothstep(0.0, .9, phase))
@@ -335,3 +348,78 @@ func apply_command(command: Dictionary) -> void:
 	command_player(grips, command.get("velocity", Vector3.ZERO), command.get("angular_velocity", Vector3.ZERO))
 	desired_basis = command.get("desired_basis", desired_basis)
 	player_boost = bool(command.get("boost", false))
+
+func query_beam_contacts() -> Array[Dictionary]:
+	# Query the entire authored beam every time, independently of its visually
+	# shortened end. This is centerline/armor overlap, not a damage/impact solver.
+	var contacts: Array[Dictionary] = []
+	for saber_rig in rigs.size():
+		var sword: RigidBody3D = rigs[saber_rig].weapons[1]
+		var start := sword.global_transform * BLADE_BASE
+		var end := sword.global_transform * BLADE_TIP
+		var candidates: Array[Dictionary] = []
+		for target_rig in rigs.size():
+			# Match the rig's physical self-collision exclusions.
+			if target_rig == saber_rig: continue
+			candidates.append({"body": rigs[target_rig].torso, "size": TORSO_SIZE})
+			candidates.append({"body": rigs[target_rig].weapons[0], "size": SHIELD_SIZE})
+		if fixture_enabled: candidates.append({"body": fixture, "size": FIXTURE_SIZE})
+		var closest: Dictionary = {}
+		for candidate in candidates:
+			var body: CollisionObject3D = candidate.body
+			var hit := segment_box_entry(start, end, body.global_transform, candidate.size)
+			if hit.is_empty(): continue
+			if not closest.is_empty() and hit.blade_fraction >= closest.blade_fraction: continue
+			hit["saber_rig"] = saber_rig
+			hit["saber_hand"] = 1
+			hit["target_rig"] = int(body.get_meta("rig", -1))
+			hit["target_part"] = str(body.get_meta("part", "other"))
+			closest = hit
+		if not closest.is_empty(): contacts.append(closest)
+	return contacts
+
+static func segment_box_entry(start: Vector3, end: Vector3, frame: Transform3D, size: Vector3) -> Dictionary:
+	var local_start := frame.affine_inverse() * start
+	var local_end := frame.affine_inverse() * end
+	var direction := local_end - local_start
+	var half := size * .5
+	var near := 0.0
+	var far := 1.0
+	var entry_normal := Vector3.ZERO
+	var starts_inside := true
+	for axis in 3:
+		if absf(local_start[axis]) > half[axis]: starts_inside = false
+		if absf(direction[axis]) < .000001:
+			if absf(local_start[axis]) > half[axis]: return {}
+			continue
+		var a: float = (-half[axis] - local_start[axis]) / direction[axis]
+		var b: float = (half[axis] - local_start[axis]) / direction[axis]
+		var entry := minf(a, b)
+		var exit := maxf(a, b)
+		if entry > near:
+			near = entry
+			entry_normal = Vector3.ZERO
+			entry_normal[axis] = -signf(direction[axis])
+		far = minf(far, exit)
+		if near > far: return {}
+	if far < 0.0 or near > 1.0: return {}
+	# If the emitter is already inside armor, absorption starts at its base.
+	# Do not jump to the exit surface or draw the beam through that material.
+	var position := start.lerp(end, near)
+	return {"position": position, "normal": frame.basis * entry_normal, "target_local_position": local_start.lerp(local_end, near), "distance": start.distance_to(position), "blade_fraction": near, "exit_fraction": far, "starts_inside": starts_inside}
+
+func _update_beam_shapes(contacts: Array[Dictionary]) -> void:
+	# Only the unabsorbed field can resist a second blade. Keep the full authored
+	# query above independent from this collision extent to avoid feedback where
+	# touching armor removes the very overlap needed to keep the beam clipped.
+	var fractions := [1.0, 1.0]
+	for contact in contacts: fractions[contact.saber_rig] = contact.blade_fraction
+	for i in rigs.size():
+		var shape: CollisionShape3D = rigs[i].weapons[1].get_child(0)
+		var box := shape.shape as BoxShape3D
+		var fraction: float = fractions[i]
+		shape.disabled = fraction <= .0001
+		var length := maxf(.001, BLADE_BASE.distance_to(BLADE_TIP) * fraction)
+		var size := Vector3(.32, length, .32)
+		if not box.size.is_equal_approx(size): box.size = size
+		shape.position = BLADE_BASE.lerp(BLADE_TIP, fraction * .5)

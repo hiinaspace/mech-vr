@@ -86,6 +86,7 @@ func _ready() -> void:
 	physics.set_paused(true)
 	add_child(view)
 	view.setup()
+	_setup_melee_lighting()
 	add_child(cockpit)
 	add_child(adapter)
 	adapter.setup(cockpit)
@@ -133,6 +134,22 @@ func _ready() -> void:
 			message = "Replay load failed: " + error_string(error)
 	_log("startup",{"engine":Engine.get_version_info().string,"physics_hz":Engine.physics_ticks_per_second,"renderer":RenderingServer.get_current_rendering_method(),"demo":demo,"camera":"stabilized","scope":"contact and replay; no damage or multiplayer"})
 	print("MELEE_LAB_READY xr=%s; Esc resume, R calibrate; T replay; M scenario; F fixed/free" % adapter.xr_active)
+
+func _setup_melee_lighting() -> void:
+	# A suit-mounted raking light gives the close fight a directional highlight.
+	# It follows returned/recorded suit poses, never the predicted control frame.
+	var lamp := SpotLight3D.new()
+	lamp.name = "MeleeShoulderHeadlight"
+	view.suits[0].add_child(lamp)
+	lamp.position = Vector3(4,9,-2)
+	lamp.basis = Basis.looking_at(Vector3(-4,-6,-14),Vector3.UP)
+	lamp.light_color = Color("e0edff")
+	lamp.light_energy = 5.0
+	lamp.spot_range = 48.0
+	lamp.spot_angle = 48.0
+	lamp.spot_attenuation = .65
+	lamp.shadow_enabled = true
+	lamp.shadow_bias = .04
 
 func _box(parent: Node3D, size: Vector3, at: Vector3, color: Color) -> MeshInstance3D:
 	var mesh := BoxMesh.new()
@@ -308,6 +325,7 @@ func _physics_process(dt: float) -> void:
 		snapshot["fixed"] = fixed_opponent
 		snapshot["bracing"] = _bracing_label()
 		snapshot["events"] = snapshot.get("contacts",[]).duplicate(true)
+		snapshot["events"].append_array(snapshot.get("beam_contacts",[]).duplicate(true))
 		snapshot["rtt_ms"] = rtt_ms
 		snapshot["cockpit_controls"] = {"boost_reserve":model.boost,"throttle":pilot.throttle}
 		snapshot["delivered_input_sequence"] = delay.input_sequence
@@ -507,7 +525,7 @@ func _update_display() -> void:
 		var loads: Array = telemetry.rigs[0].get("loads",[{},{}])
 		load_text = "LOAD L %3.0f%% / R %3.0f%%" % [float(loads[0].get("effort",0))*100,float(loads[1].get("effort",0))*100]
 	var shown_controls: Dictionary = telemetry.get("cockpit_controls",{"boost_reserve":model.boost,"throttle":pilot.throttle})
-	status.text = "MELEE LAB / %s\n%s\nL %s   R %s  /  %.1f m/s\n%s\n%s" % ["REPLAY — LIVE FROZEN" if recorder.replaying else ("PAUSED" if paused else MODE_NAMES[mode]),"Amber dots: requested grips","HELD" if handles.grabbed[0] else "PARKED","HELD" if handles.grabbed[1] else "PARKED",speed,load_text,"BOOST %d%% / MAIN %d%% / RTT %dms\n%s" % [shown_controls.get("boost_reserve",1.0)*100,shown_controls.get("throttle",0.0)*100,telemetry.get("rtt_ms",rtt_ms),message]]
+	status.text = "MELEE LAB / %s\n%s\nL %s   R %s  /  %.1f m/s\n%s\n%s" % ["REPLAY — LIVE FROZEN" if recorder.replaying else ("PAUSED" if paused else MODE_NAMES[mode]),"Beam clash resists / armor contact heats","HELD" if handles.grabbed[0] else "PARKED","HELD" if handles.grabbed[1] else "PARKED",speed,load_text,"BOOST %d%% / MAIN %d%% / RTT %dms\n%s" % [shown_controls.get("boost_reserve",1.0)*100,shown_controls.get("throttle",0.0)*100,telemetry.get("rtt_ms",rtt_ms),message]]
 
 func _toggle_pause() -> void:
 	if note_edit.visible:

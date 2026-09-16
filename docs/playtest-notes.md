@@ -165,3 +165,13 @@ glow, restored six-axis stick/throttle/boost with arm-first overlap acquisition,
 and a smaller lower panel/outlined puppet with force coloring. Confirms live
 changes without resetting and ping as half outbound/half inbound RTT. This feedback
 supports the next bounded tuning pass; it is not a precision/fairness verdict.
+
+## Beam fiction and contrast feedback
+
+User says metal readability improved but asks for stronger directional lighting.
+Requests beam-on-beam-only physical collision: armor should accept nonblocking
+beam contact, with dwell-based heating instead of impact damage. Notes that the
+dummy's improved overhead slash crosses over its shield/left shoulder despite
+using the right arm; requests correction to the sword side. User reports force
+transfer to the player works. These are user observations, not new automated
+headset validation.

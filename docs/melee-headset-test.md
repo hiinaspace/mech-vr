@@ -18,6 +18,36 @@ acquire it; release to use the panel with pointer/trigger. Existing arm-stick
 flight controls apply while holding handles. Left A / desktop Space brakes.
 Desktop mouse aiming requires right mouse; keyboard shortcuts appear on the panel.
 
+## Beam-contact experiment
+
+Beam swords now physically resist **only other beam swords**. Shield/body contact
+stops the visible beam at the first surface reached from the hilt, but cannot
+push, knock or stop the sword hand. The full-length overlap query continues while
+the beam is visually shortened, so holding position keeps heating that surface.
+Heat is still visual-only: no health, ablation or impact damage is implemented.
+
+Try these comparisons:
+
+1. Hold the blade against the opponent's shield/body, then make a fast pass.
+   The sustained contact should become brighter; a quick pass deposits less heat.
+2. Move the hand through the shield and withdraw. The beam should shorten and
+   re-extend without pushing the shield. Only the first armor surface absorbs it;
+   a visually hidden beam extension should not clash with another saber behind it.
+3. Meet the other saber in open space. This still binds and transfers force.
+   Use replay to compare armor overlap with an actual blade clash.
+4. Select repeated cut: the raised position and downswing now stay on the dummy's
+   **right/sword shoulder** side. Speed and motor limits still apply.
+
+A cool, offset shoulder spotlight casts directional highlights/shadows across the
+close fight. It follows the displayed suit, including during delayed-state and
+replay viewing; no head-driven camera rotation or renderer change was introduced.
+
+The collision model still covers torso/shield boxes, not every visible limb.
+Own-suit armor is ignored, consistent with the existing self-collision exclusion.
+The slab fixture also permits passage and shortens the beam; painted heat remains
+on modeled robot torso/shield surfaces. Extremely fast sub-tick intersections may
+be missed by the thermal sampling; this is not a continuous volumetric burn model.
+
 ## New tuning pass (2026-09-16)
 
 Open **TUNE FORCE / SPEED / LAG** on the lower cockpit panel (desktop **F2**).
