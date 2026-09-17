@@ -22,11 +22,22 @@ var _throttle_at_grab := 0.0
 var visual_root: Node3D
 var stick_visual: Node3D
 var throttle_visual: Node3D
+## The displayed vectors are the deadzoned, bounded commands sent to the motor.
+var move_input := Vector3.ZERO
+var rotation_input := Vector3.ZERO
+var origin_tether: MeshInstance3D
+var rotation_vector: MeshInstance3D
+var rotation_tip: MeshInstance3D
+var origin_axes: Node3D
+var current_axes: Node3D
+var rotation_bars: Array[MeshInstance3D] = []
 
 func reset() -> void:
 	stick_owner = -1
 	throttle_owner = -1
 	throttle = 0.0
+	move_input = Vector3.ZERO
+	rotation_input = Vector3.ZERO
 	_ready = [false, false]
 	_down = [false, false]
 	stick_pose = Transform3D(Basis.IDENTITY, STICK_HOME)
@@ -76,7 +87,8 @@ func step(raw: Dictionary, arm_grabbed: Array = [false, false]) -> Dictionary:
 			if q.w < 0.0: q = Quaternion(-q.x, -q.y, -q.z, -q.w)
 			if q.get_angle() > 0.0001:
 				rotation = _deadzone_vector(q.get_axis() * q.get_angle() / ROTATION_TRAVEL, 0.10).limit_length(1.0)
-			stick_pose = Transform3D(Basis(Quaternion.IDENTITY.slerp(q, minf(1.0, ROTATION_TRAVEL / maxf(q.get_angle(), 0.0001)))), STICK_HOME + move * TRAVEL)
+			var displayed_basis := Basis.IDENTITY if rotation.is_zero_approx() else Basis(rotation.normalized(),rotation.length()*ROTATION_TRAVEL)
+			stick_pose = Transform3D(displayed_basis, STICK_HOME + move * TRAVEL)
 		if throttle_owner == i:
 			if brake:
 				_throttle_anchor = physical.origin
@@ -89,6 +101,8 @@ func step(raw: Dictionary, arm_grabbed: Array = [false, false]) -> Dictionary:
 			mapped["ui_" + hand_key] = false
 			mapped[hand_key + "_trigger"] = 1.0 # Keep downstream action gates unarmed.
 	if stick_owner < 0: stick_pose = Transform3D(Basis.IDENTITY, STICK_HOME)
+	move_input = move
+	rotation_input = rotation
 	throttle_pose = Transform3D(Basis.IDENTITY, THROTTLE_HOME + Vector3.FORWARD * throttle * THROTTLE_TRAVEL)
 	_update_visual()
 	for key in MOTOR_KEYS:
@@ -117,18 +131,42 @@ func setup_visual(parent: Node3D) -> void:
 	_box(throttle_visual, Vector3.ZERO, Vector3(0.10,0.09,0.06), Color("f3b75f"))
 	_label("MANEUVER / GRIP", STICK_HOME + Vector3(0,-0.16,-0.1))
 	_label("MAIN THRUST", THROTTLE_HOME + Vector3(0,-0.12,-0.36))
+	origin_axes = Node3D.new()
+	origin_axes.name = "StickOriginAxes"
+	visual_root.add_child(origin_axes)
+	origin_axes.position = STICK_HOME
+	_tripod(origin_axes,.10,.35)
+	current_axes = Node3D.new()
+	current_axes.name = "StickCommandAxes"
+	visual_root.add_child(current_axes)
+	_tripod(current_axes,.075,1.0)
+	_box(origin_axes,Vector3.ZERO,Vector3.ONE*.022,Color(.9,.9,.9,.4))
+	origin_tether = _box(visual_root,Vector3.ZERO,Vector3.ONE,Color("ffd379"))
+	origin_tether.name = "TranslationDemand"
+	rotation_vector = _box(visual_root,Vector3.ZERO,Vector3.ONE,Color("f4a3ff"))
+	rotation_vector.name = "RotationDemand"
+	rotation_tip = _box(visual_root,Vector3.ZERO,Vector3.ONE*.012,Color("f4a3ff"))
+	for axis in 3:
+		var bar := _box(visual_root,Vector3.ZERO,Vector3.ONE,_axis_color(axis))
+		bar.name = ["PitchDemand","YawDemand","RollDemand"][axis]
+		rotation_bars.append(bar)
+		_label(["P","Y","R"][axis],STICK_HOME+Vector3(.14,-.045-axis*.028,0))
+	_label("ROT",STICK_HOME+Vector3(.20,.01,0))
 	_update_visual()
 
-func _box(parent: Node3D, at: Vector3, size: Vector3, color: Color) -> void:
+func _box(parent: Node3D, at: Vector3, size: Vector3, color: Color) -> MeshInstance3D:
 	var node := MeshInstance3D.new()
 	var mesh := BoxMesh.new()
 	mesh.size = size
 	node.mesh = mesh
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	if color.a < 1.0: material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	node.material_override = material
 	node.position = at
 	parent.add_child(node)
+	return node
 
 func _label(caption: String, at: Vector3) -> void:
 	var label := Label3D.new()
@@ -138,6 +176,37 @@ func _label(caption: String, at: Vector3) -> void:
 	label.position = at
 	visual_root.add_child(label)
 
+func _axis_color(axis: int, alpha: float = 1.0) -> Color:
+	var color: Color = [Color("f07878"),Color("83e297"),Color("83b7ff")][axis]
+	color.a = alpha
+	return color
+
+func _tripod(parent: Node3D, length: float, alpha: float) -> void:
+	for axis in 3:
+		var size := Vector3.ONE*.004
+		size[axis] = length
+		var at := Vector3.ZERO
+		at[axis] = length*.5
+		_box(parent,at,size,_axis_color(axis,alpha))
+
+func _line_between(mesh: MeshInstance3D, start: Vector3, end: Vector3, width: float) -> void:
+	var delta := end-start
+	mesh.visible = delta.length() > .0001
+	if not mesh.visible: return
+	var up := Vector3.RIGHT if absf(delta.normalized().dot(Vector3.UP)) > .95 else Vector3.UP
+	mesh.transform = Transform3D(Basis.looking_at(delta.normalized(),up).scaled_local(Vector3(width,width,delta.length())),(start+end)*.5)
+
 func _update_visual() -> void:
 	if is_instance_valid(stick_visual): stick_visual.transform = stick_pose
 	if is_instance_valid(throttle_visual): throttle_visual.transform = throttle_pose
+	if not is_instance_valid(origin_tether): return
+	current_axes.transform = stick_pose
+	_line_between(origin_tether,STICK_HOME,STICK_HOME+move_input*TRAVEL,.004)
+	var turn_origin := STICK_HOME+Vector3(0,.12,0)
+	var turn_end := turn_origin+rotation_input*.12
+	_line_between(rotation_vector,turn_origin,turn_end,.004)
+	rotation_tip.visible = rotation_vector.visible
+	rotation_tip.position = turn_end
+	for axis in 3:
+		var start := STICK_HOME+Vector3(.20,-.045-axis*.028,0)
+		_line_between(rotation_bars[axis],start,start+Vector3(rotation_input[axis]*.045,0,0),.006)

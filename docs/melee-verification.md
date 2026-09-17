@@ -1,3 +1,71 @@
+# Persistent heat trails and cockpit mapping
+
+## Changes and cause
+
+The parked-arm drift was a feedback error: each ungrabbed frame called the legacy
+model's hold function, copying its lagging physical arm pose into the next target.
+During sustained acceleration, that repeatedly moved the goal. Melee now uses an
+independent robot-local arm mapping whose commanded targets latch when released.
+Physical pose feedback is used for indicators/ownership, never as a repeated arm
+target update. A fixed robot-head offset maps between cockpit and robot references.
+Neither body world pose nor HMD translation participates in the arm mapping.
+
+Physical thumbstick translation continuously uses current head rotation, and pitch
+uses head-right; yaw stays robot-local upright. The virtual six-axis stick remains
+cockpit-relative. Calibration clutches the target while trigger is held and saves
+translation/orientation offsets per arm only on explicit Finish. Reset/Cancel
+semantics preserve the original mapping until saved. Flight/boost are inhibited
+while calibrating; arm simulation continues. Automated tests use isolated configs.
+
+Heat blits now use additive texture blending. Persistent 16×16 cells on each of
+six faces replace the eight-stamp queue; cells retire only after cooling below
+threshold. Exponential cooling has a 1.73-second half-life. An independent hidden
+geometry rig resolves all solid armor/limb/hilt surfaces from authoritative poses;
+local displayed pose delay cannot move the queried surface. These visual surfaces
+do not add rigid-body limb masses or physical joint constraints.
+
+## Evidence
+
+- All 28 test scripts pass: `artifacts/melee-trails-mapping-suite.log`. New mapping
+  unit tests: 15, head-frame tests: 5, pilot tests: 50, actual arm integration: 23 in the
+  suite. The final Reset→Cancel regression brings arm integration to 24 in
+  `artifacts/melee-arm-integration-final.log`. Existing lifecycle: 39, core: 45 and
+  authority/beam integration: 182 remain passing.
+- Actual-scene tests cover sustained throttle with released shield, HMD translation,
+  regrab under actuator error, calibration clutch/save/reset/load and cockpit-error
+  replay. Head-frame tests distinguish real thumbsticks from the virtual stick.
+- GPU readback verifies two overlapping .3 heat stamps add above .55 instead of
+  replacing each other. Rendered scripted sweep diagnostics retain 14 shield and 21
+  shin cells after beam contact ends, with exactly half the total heat after 1.73 s.
+  Inspected `artifacts/melee-shield-trail.png`, `melee-limb-trail.png` and
+  `melee-limb-trail-half-life.png`; log `melee-trail-render.log`.
+- Rendered cockpit/replay and calibration panel inspected. Logs:
+  `artifacts/melee-mapping-render.log`, `melee-calibration-render.log`; captures
+  `melee-cockpit.png`, `melee-replay.png`, `melee-calibration.png`.
+- Isolated XR reaches startup, recentering and both-controller focused tracking:
+  `artifacts/melee-trails-mapping-xr.log`. Existing shutdown diagnostics remain;
+  rendered lab exits can also show the previously identified audio-object leaks.
+  No shared service or system configuration changes. No new physical headset,
+  full-resolution performance, comfort or subjective calibration claims.
+
+## Limits
+
+The per-face heat cells and primitive-box surface projection approximate painting;
+this is not continuous volumetric cutting or thermal damage. Active painted atlases
+still rebuild from their compact cell history. Dense sustained painting across many
+parts can cost more CPU/GPU work and replay space; actual headset performance is a
+remaining user gate. Unchanged/empty paint states skip redundant texture work.
+
+A 20-second real-scene-schema replay with 100 heat cells exports/imports at 29,164,680
+bytes. Export/import remains bounded at 32 MiB; arbitrary paint density is not a
+promise of a successful full 20-second export. The live pose recorder still retains
+20 seconds. Arm endpoint mechanics still lack physical limb/joint reach constraints;
+command stability does not make an underpowered actuator keep up with any thrust.
+
+See [the test card](melee-headset-test.md) for F3 calibration and input/error cues.
+
+---
+
 # Beam absorption and lighting pass
 
 - Sabers physically collide only with other sabers. An independent full-length

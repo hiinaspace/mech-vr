@@ -226,7 +226,11 @@ func step(sample: Dictionary, dt: float) -> Dictionary:
 	var pilot_rotation: Vector3 = sample.get("pilot_rotation", Vector3.ZERO)
 	if movement_neutral_required: pilot_rotation = Vector3.ZERO
 	if not pilot_rotation.is_zero_approx(): advanced_attitude = true
-	var desired_pitch := vertical * pitch_speed if attitude_mode else 0.0
+	var thumbstick_basis: Basis = sample.get("thumbstick_basis",Basis.IDENTITY)
+	var stick_rates := thumbstick_basis*Vector3(vertical*pitch_speed if attitude_mode else 0.0,0,0)
+	stick_rates.y += yaw_input*yaw_speed
+	if absf(stick_rates.z)>.00001: advanced_attitude = true
+	var desired_pitch := stick_rates.x
 	desired_pitch += pilot_rotation.x * deg_to_rad(35.0)
 	var old_yaw := yaw
 	if snap_yaw:
@@ -237,13 +241,13 @@ func step(sample: Dictionary, dt: float) -> Dictionary:
 			yaw = wrapf(yaw + signf(yaw_input) * snap_angle, -PI, PI)
 			_snap_ready = false
 	else:
-		yaw_rate = move_toward(yaw_rate, (yaw_input * yaw_speed + pilot_rotation.y * deg_to_rad(45.0)), deg_to_rad(150.0) * dt)
+		yaw_rate = move_toward(yaw_rate, (stick_rates.y + pilot_rotation.y * deg_to_rad(45.0)), deg_to_rad(150.0) * dt)
 	pitch_rate = move_toward(pitch_rate, desired_pitch, deg_to_rad(100.0) * dt)
 	yaw = wrapf(yaw + yaw_rate * dt, -PI, PI)
 	pitch = pitch + pitch_rate * dt if advanced_attitude else clampf(pitch + pitch_rate * dt, deg_to_rad(-75), deg_to_rad(75))
 	if not advanced_attitude and absf(pitch) >= deg_to_rad(75) and signf(pitch_rate) == signf(pitch):
 		pitch_rate = 0.0
-	roll_rate = move_toward(roll_rate, pilot_rotation.z * deg_to_rad(45.0), deg_to_rad(150.0) * dt)
+	roll_rate = move_toward(roll_rate, stick_rates.z + pilot_rotation.z * deg_to_rad(45.0), deg_to_rad(150.0) * dt)
 	if advanced_attitude:
 		# Increment local rotation without Euler reconstruction: stable through roll/poles.
 		var rates := Vector3(pitch_rate * dt, wrapf(yaw - old_yaw, -PI, PI), roll_rate * dt)
@@ -256,6 +260,7 @@ func step(sample: Dictionary, dt: float) -> Dictionary:
 		body_basis = Basis.from_euler(Vector3(pitch, yaw, 0))
 	if not attitude_mode:
 		move.y += vertical
+	move = thumbstick_basis * move
 	move += sample.get("pilot_move", Vector3.ZERO)
 	move = move.limit_length(1.0)
 	var basis := body_basis

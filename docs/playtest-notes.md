@@ -175,3 +175,14 @@ dummy's improved overhead slash crosses over its shield/left shoulder despite
 using the right arm; requests correction to the sword side. User reports force
 transfer to the player works. These are user observations, not new automated
 headset validation.
+
+## Heat trails and cockpit-frame feedback
+
+User confirms corrected slash and spotlight improve spatial readability, and
+beam-only contact feels better. Reports brush overwrite instead of a cut trail,
+missing limb heat, and a parked shield target drifting during throttle motion.
+Requests local pose-error feedback, maneuver-stick vector/rotation cues and
+persisted per-arm clutch calibration. Clarifies that physical thumbsticks follow
+head rotation continuously, while the virtual six-axis stick stays cockpit-local;
+head translation should not steer arms. These observations drove the next bounded
+fix and headset comparison.

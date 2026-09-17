@@ -167,11 +167,11 @@ func run() -> void:
 	scene._toggle_pause()
 	scene._physics_process(1.0 / 90.0)
 	input.current.right_grip = 1.0
-	var before_grab: Dictionary = scene.physics.snapshot().rigs[0]
+	var before_grab: Dictionary = scene.physics.capture_command()
 	scene._physics_process(1.0 / 90.0)
 	check(scene.handles.grabbed[1], "fresh regrab works with rotated stabilized cockpit")
-	var command_world: Transform3D = before_grab.body * scene.physics.rigs[0].commands[1]
-	check(command_world.is_equal_approx(before_grab.grips[1]), "rotated cockpit acquisition commands actual world grip without jump")
+	var command_local: Transform3D = scene.physics.rigs[0].commands[1]
+	check(command_local.is_equal_approx(before_grab.grips[1]), "rotated cockpit acquisition preserves latched robot-local target without jump")
 	await ticks(3)
 	check(scene.physics.snapshot().rigs[0].body.is_finite(), "rotated regrab keeps physical suit finite")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

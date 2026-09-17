@@ -18,6 +18,63 @@ acquire it; release to use the panel with pointer/trigger. Existing arm-stick
 flight controls apply while holding handles. Left A / desktop Space brakes.
 Desktop mouse aiming requires right mouse; keyboard shortcuts appear on the panel.
 
+## Heat trails, stable arms and calibration
+
+**Trails:** drag the beam across the shield, then across an arm or leg. Heat now
+adds across overlapping brush footprints, remains where painted, and fades with
+about a 1.7-second half-life. The eight-spot eviction limit is gone. All visible
+solid armor/limb/hilt meshes participate; beam glow and exhaust do not. These are
+visual heat surfaces, not new physical limb bodies or damage/destruction.
+
+**Arm drift:** parked targets now remain fixed in the robot's local reference
+frame. They no longer chase the previous physical hand position when acceleration
+causes actuator lag. Both live and parked arm commands use the fixed robot-head
+reference and 8× position mapping. HMD translation does not enter that mapping;
+body translation/rotation does not accumulate into a parked target.
+
+Real controller **thumbstick** translation follows current head rotation; its
+pitch command uses the current head-right axis. Yaw remains robot-local upright.
+This applies continuously, per the requested comparison. The physical six-axis
+virtual stick and persistent throttle remain cockpit/robot-relative, independent
+of head pose. Looking without moving a stick does not command motion.
+
+### Move the handles away from the maneuver stick
+
+Use zero RTT and the stationary guard for an easy first calibration:
+
+1. Open **ARM CALIBRATION** on the panel or press **F3**. Resume if paused.
+   Flight/boost are inhibited while calibrating; finite arm motors still run.
+2. Grip a parked arm handle and put that robot arm where you want it.
+3. Release the trigger once, then **hold that hand's trigger**. The arm's
+   requested pose stays fixed. Move and rotate the cockpit handle somewhere
+   comfortable, clear of the center maneuver stick.
+4. Release trigger: further handle motion controls the arm with the new offset.
+   Repeat for either hand. Translation and rotation offsets are independent per arm.
+5. Release the handle and choose **FINISH + SAVE OFFSETS** (or F3). Saved offsets
+   reload next launch. **CANCEL** restores the prior mapping; **RESET OFFSETS**
+   restores defaults, which are only persisted when you Finish.
+
+Offsets are stored in Godot's per-user `user://melee-arm-calibration.cfg`.
+R resets the scene/seated origin while retaining saved/current offsets; robot
+arms return to neutral and cockpit handles move to their corresponding positions.
+After calibration, release grips/triggers and regrab before maneuvering/boosting.
+
+### Read the input and actuator difference
+
+- The center stick has an amber origin tether, neutral/current RGB axes, a purple
+  angular-demand vector and signed pitch/yaw/roll bars. These show its actual
+  deadzoned input, not simulated vehicle momentum.
+- Cyan wire grips show current robot hand poses mapped back into cockpit space;
+  amber wire grips show requested poses. Their connecting lines and orientation
+  axes expose actuator lag. Captions show cockpit-space centimetres and degrees
+  (the positional error is compressed by the same 8× arm gain).
+- Replay retains the cockpit error poses and painted trails. Imported older clips
+  without cockpit error data simply omit those indicators.
+
+Check a released shield during sustained throttle, then brake and reacquire it:
+its requested position should stay put rather than ratcheting farther away.
+Actual actuator error can still grow transiently if thrust exceeds arm strength.
+
 ## Beam-contact experiment
 
 Beam swords now physically resist **only other beam swords**. Shield/body contact

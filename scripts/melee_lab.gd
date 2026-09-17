@@ -16,6 +16,9 @@ var appearance_time := 0.0
 var recorder = Replay.new()
 var view = View.new()
 var model = ControlModel.new()
+var arm_mapping = preload("res://scripts/melee_arm_mapping.gd").new()
+var cockpit_feedback = preload("res://scripts/melee_cockpit_feedback.gd").new()
+var calibration_path := "user://melee-arm-calibration.cfg"
 var pilot = preload("res://scripts/pilot_controls.gd").new()
 var pilot_status := {"owners":["",""]}
 var handles = preload("res://scripts/cockpit_handles.gd").new()
@@ -86,6 +89,7 @@ func _ready() -> void:
 	physics.set_paused(true)
 	add_child(view)
 	view.setup()
+	physics.armor_provider = view.get_armor_surfaces
 	_setup_melee_lighting()
 	add_child(cockpit)
 	add_child(adapter)
@@ -100,7 +104,14 @@ func _ready() -> void:
 			get_window().content_scale_size = Vector2i(1280,900)
 			get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
 			get_window().content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+	if not demo and not "--script" in OS.get_cmdline_args():
+		var config_error: Error = arm_mapping.load_calibration(calibration_path)
+		if config_error not in [OK,ERR_FILE_NOT_FOUND]: message = "Saved arm calibration could not be loaded."
+	arm_mapping.reset_targets()
+	handles.handles.assign(arm_mapping.handle_poses)
 	_build_cockpit()
+	cockpit.add_child(cockpit_feedback)
+	cockpit_feedback.setup()
 	pilot.setup_visual(cockpit)
 	view.setup_puppet(cockpit)
 	_build_panel()
@@ -133,6 +144,9 @@ func _ready() -> void:
 		if error != OK:
 			message = "Replay load failed: " + error_string(error)
 	_log("startup",{"engine":Engine.get_version_info().string,"physics_hz":Engine.physics_ticks_per_second,"renderer":RenderingServer.get_current_rendering_method(),"demo":demo,"camera":"stabilized","scope":"contact and replay; no damage or multiplayer"})
+	if "--capture-calibration" in OS.get_cmdline_user_args():
+		_begin_arm_calibration()
+		adapter.camera.rotation.x = -.65
 	print("MELEE_LAB_READY xr=%s; Esc resume, R calibrate; T replay; M scenario; F fixed/free" % adapter.xr_active)
 
 func _setup_melee_lighting() -> void:
@@ -265,6 +279,9 @@ func _physics_process(dt: float) -> void:
 		if not replay_snapshot.is_empty():
 			view.apply_visuals(replay_snapshot.get("visuals",[]))
 			view.apply_appearance(replay_snapshot.get("appearance",{}))
+			var saved_error: Dictionary = replay_snapshot.get("cockpit_error",{})
+			cockpit_feedback.visible = saved_error.has("actual") and saved_error.has("desired")
+			if cockpit_feedback.visible: cockpit_feedback.show_poses(saved_error.actual,saved_error.desired)
 			if not free_replay:
 				cockpit.global_transform = replay_snapshot.get("cockpit",live_cockpit)
 			else:
@@ -285,18 +302,31 @@ func _physics_process(dt: float) -> void:
 	var actual_body: Transform3D = player.body
 	cockpit.global_basis = actual_body.basis if physical_camera else player.get("commanded_basis",actual_body.basis)
 	cockpit.global_position = actual_body.origin + cockpit.global_basis*COCKPIT_OFFSET
-	# Feed the latest solved endpoints back before ownership transitions. Parking
-	# captures ACTUAL poses; it cannot store a spring command behind an obstacle.
+	# The legacy input model still manages action/flight ownership. Its arm
+	# feedback is diagnostic only: arm_mapping exclusively owns actuator targets.
 	for i in 2:
 		model.arm_actual[i] = cockpit.global_transform.affine_inverse()*player.grips[i]
 	sample.paused = paused
 	handles.enabled = grip_controls
 	pilot_status = pilot.step(sample,handles.pilot_reservations(sample))
 	var adapted: Dictionary = handles.step(pilot_status.sample,model,dt)
+	adapted["thumbstick_basis"] = sample.head.basis.orthonormalized()
+	if arm_mapping.calibration_mode:
+		adapted.move = Vector3.ZERO
+		adapted.yaw = 0.0
+		adapted.vertical = 0.0
+		adapted.pilot_move = Vector3.ZERO
+		adapted.pilot_rotation = Vector3.ZERO
+		adapted.main_throttle = 0.0
+		adapted.left_trigger = 0.0
+		adapted.right_trigger = 0.0
+		adapted.brake = true
 	var motor_result: Dictionary = model.step(adapted,dt)
+	var mapped_targets: Array[Transform3D] = arm_mapping.step(sample,handles.grabbed)
+	handles.handles.assign(arm_mapping.handle_poses)
 	var commands: Array[Transform3D] = []
 	for i in 2:
-		commands.append(actual_body.affine_inverse()*cockpit.global_transform*model.arm_targets[i])
+		commands.append(Transform3D(Basis.IDENTITY,COCKPIT_OFFSET)*mapped_targets[i])
 	if not paused:
 		delay.send_input({"grips":commands,"velocity":actual_body.basis.inverse()*model.velocity,
 			"angular_velocity":actual_body.basis.inverse()*model.body_basis*Vector3(model.pitch_rate,model.yaw_rate,model.roll_rate),
@@ -315,6 +345,15 @@ func _physics_process(dt: float) -> void:
 		material.albedo_color = Color("79ffbd") if handles.grabbed[i] else (Color("64e4f0") if i==0 else Color("ffc777"))
 		markers[i].global_position = player.commands[i].origin
 		markers[i].visible = not paused and markers[i].global_position.distance_to(player.grips[i].origin)>.25
+	var actual_cockpit: Array = []
+	var desired_cockpit: Array = []
+	for i in 2:
+		var actual_ref: Transform3D = Transform3D(Basis.IDENTITY,-COCKPIT_OFFSET)*actual_body.affine_inverse()*player.grips[i]
+		actual_cockpit.append(arm_mapping.inverse_map(i,actual_ref))
+		desired_cockpit.append(arm_mapping.inverse_map(i,arm_mapping.targets[i]))
+	cockpit_feedback.visible = true
+	cockpit_feedback.show_poses(actual_cockpit,desired_cockpit)
+	snapshot["cockpit_error"] = {"actual":actual_cockpit,"desired":desired_cockpit}
 	_show_contacts(snapshot,not paused,dt)
 	if not paused:
 		snapshot["visuals"] = view.capture_visuals()
@@ -397,10 +436,10 @@ func _panel_input(sample: Dictionary) -> void:
 		var fresh: bool = down and not trigger_down[i] and pointer_active[i]
 		trigger_down[i] = down or not valid
 		pointer_active[i] = active
-		if not active or not down or recorder.replaying or not tuning_page: slider_capture[i] = -1
+		if not active or not down or recorder.replaying or not tuning_page or arm_mapping.calibration_mode: slider_capture[i] = -1
 		var row := panel_hit(pose) if active else -1
 		if row>=0: hovered = row
-		if tuning_page and not recorder.replaying:
+		if tuning_page and not recorder.replaying and not arm_mapping.calibration_mode:
 			if fresh and row>=1 and row<=7 and slider_capture[1-i]<0:
 				slider_capture[i] = row-1
 			if slider_capture[i]>=0:
@@ -412,11 +451,10 @@ func _panel_input(sample: Dictionary) -> void:
 			_action(row)
 
 func _neutral_command() -> Dictionary:
-	var state: Dictionary = physics.snapshot().rigs[0]
 	var grips: Array[Transform3D] = []
-	for pose in state.grips: grips.append(state.body.affine_inverse()*pose)
+	for target in physics.capture_command().get("grips",[]): grips.append(target)
 	return {"grips":grips,"velocity":Vector3.ZERO,"angular_velocity":Vector3.ZERO,
-		"desired_basis":state.get("commanded_basis",state.body.basis),"boost":false}
+		"desired_basis":physics.desired_basis,"boost":false}
 
 func _flush_delay() -> void:
 	delay.flush(_neutral_command(),last_snapshot)
@@ -458,6 +496,22 @@ func _cycle_bracing() -> void:
 	_update_display()
 
 func _action(row: int) -> void:
+	if arm_mapping.calibration_mode and not recorder.replaying:
+		match row:
+			0: _finish_arm_calibration()
+			1:
+				var previous: Dictionary = arm_mapping._before_calibration.duplicate(true)
+				arm_mapping.reset_calibration()
+				arm_mapping.begin_calibration()
+				arm_mapping._before_calibration = previous
+				_release_arm_controls()
+				message = "Default offsets. Finish saves; Cancel restores previous mapping."
+			8:
+				arm_mapping.cancel_calibration()
+				_release_arm_controls()
+				message = "Calibration cancelled."
+		_update_display()
+		return
 	if tuning_page and not recorder.replaying:
 		if row==0: tuning_page = false
 		elif row==8: _cycle_bracing()
@@ -490,7 +544,7 @@ func _action(row: int) -> void:
 				paused = true
 				message = "Camera comparison changed; resume explicitly."
 			6: _save_replay()
-			7: _mark()
+			7: _begin_arm_calibration()
 			8: tuning_page = true
 	trigger_down = [true,true]
 	pointer_active = [false,false]
@@ -501,7 +555,7 @@ func _update_display() -> void:
 	if recorder.replaying:
 		texts = ["RETURN TO LIVE (paused) [T]","%s  %.1f / %.1fs [P]" % ["PAUSE REPLAY" if recorder.playing else "PLAY REPLAY",recorder.cursor,recorder.duration()],"BACK 1 SECOND  [ [ ]","FORWARD 1 SECOND  [ ] ]","VIEW: %s [V]" % ("FREE FLIGHT" if free_replay else "RECORDED COCKPIT"),"MARK THIS MOMENT [F8]","EXPORT REPLAY + NOTES [F5]","ADD TEXT NOTE [N / desktop]","JUMP TO START"]
 	else:
-		texts = ["%s [Esc / stick click]" % ("RESUME" if paused else "PAUSE"),"RESET + CALIBRATE [R]","OPPONENT: %s [M]" % MODE_NAMES[mode],"BASE: %s [F]" % ("FIXED" if fixed_opponent else "FREE"),"REPLAY LAST 20 SECONDS [T]","COCKPIT: %s [C]" % ("PHYSICAL" if physical_camera else "STABILIZED"),"EXPORT CLIP + NOTES [F5]","MARK MOMENT [F8]","TUNE FORCE / SPEED / LAG [F2]"]
+		texts = ["%s [Esc / stick click]" % ("RESUME" if paused else "PAUSE"),"RESET + CALIBRATE [R]","OPPONENT: %s [M]" % MODE_NAMES[mode],"BASE: %s [F]" % ("FIXED" if fixed_opponent else "FREE"),"REPLAY LAST 20 SECONDS [T]","COCKPIT: %s [C]" % ("PHYSICAL" if physical_camera else "STABILIZED"),"EXPORT CLIP + NOTES [F5]","ARM CALIBRATION [F3]","TUNE FORCE / SPEED / LAG [F2]"]
 	if tuning_page and not recorder.replaying:
 		texts = ["BACK TO CONTROLS [F2]"]
 		for i in TUNING.size():
@@ -509,8 +563,10 @@ func _update_display() -> void:
 			if TUNING[i][4] in ["kN","kNm"]: value /= 1000.0
 			texts.append("%s  %.1f %s" % [TUNING[i][0],value,TUNING[i][4]])
 		texts.append("BRACING: %s [K]" % _bracing_label())
+	if arm_mapping.calibration_mode and not recorder.replaying:
+		texts = ["FINISH + SAVE OFFSETS [F3]","RESET OFFSETS TO DEFAULT","GRIP: POSITION ROBOT ARM","HOLD TRIGGER: HOLD ARM TARGET","MOVE HANDLE TO COMFORTABLE SPOT","RELEASE TRIGGER: KEEP OFFSET","LEFT: %s" % ("REPOSITIONING" if arm_mapping.adjusting[0] else "ARM CONTROL"),"RIGHT: %s" % ("REPOSITIONING" if arm_mapping.adjusting[1] else "ARM CONTROL"),"CANCEL / RESTORE OFFSETS"]
 	for i in slider_tracks.size():
-		slider_tracks[i].visible = tuning_page and not recorder.replaying
+		slider_tracks[i].visible = tuning_page and not recorder.replaying and not arm_mapping.calibration_mode
 		slider_knobs[i].visible = slider_tracks[i].visible
 		if slider_tracks[i].visible:
 			slider_knobs[i].position.x = (inverse_lerp(TUNING[i][2],TUNING[i][3],tuning_value(i))-.5)*PANEL_WIDTH*.8
@@ -526,6 +582,30 @@ func _update_display() -> void:
 		load_text = "LOAD L %3.0f%% / R %3.0f%%" % [float(loads[0].get("effort",0))*100,float(loads[1].get("effort",0))*100]
 	var shown_controls: Dictionary = telemetry.get("cockpit_controls",{"boost_reserve":model.boost,"throttle":pilot.throttle})
 	status.text = "MELEE LAB / %s\n%s\nL %s   R %s  /  %.1f m/s\n%s\n%s" % ["REPLAY — LIVE FROZEN" if recorder.replaying else ("PAUSED" if paused else MODE_NAMES[mode]),"Beam clash resists / armor contact heats","HELD" if handles.grabbed[0] else "PARKED","HELD" if handles.grabbed[1] else "PARKED",speed,load_text,"BOOST %d%% / MAIN %d%% / RTT %dms\n%s" % [shown_controls.get("boost_reserve",1.0)*100,shown_controls.get("throttle",0.0)*100,telemetry.get("rtt_ms",rtt_ms),message]]
+
+func _release_arm_controls() -> void:
+	handles.reset()
+	handles.handles.assign(arm_mapping.handle_poses)
+	pilot.reset()
+	pilot_status = {"owners":["",""]}
+	model._trigger_ready.assign([false,false])
+	model._trigger_down.assign([true,true])
+	_flush_delay()
+
+func _begin_arm_calibration() -> void:
+	arm_mapping.begin_calibration()
+	tuning_page = false
+	_release_arm_controls()
+	message = "Resume if paused. Grip moves arm; hold trigger to reposition handle."
+	_update_display()
+
+func _finish_arm_calibration() -> void:
+	var error: Error = arm_mapping.finish_calibration(calibration_path)
+	if error==OK:
+		_release_arm_controls()
+		message = "Arm offsets saved. Release controls, then regrab."
+	else: message = "Could not save calibration: " + error_string(error)
+	_update_display()
 
 func _toggle_pause() -> void:
 	if note_edit.visible:
@@ -543,6 +623,8 @@ func _toggle_pause() -> void:
 	_log("pause",{"paused":paused})
 
 func _reset() -> void:
+	if arm_mapping.calibration_mode: arm_mapping.cancel_calibration()
+	arm_mapping.reset_targets()
 	if recorder.replaying: _leave_replay()
 	paused = true
 	physics.set_paused(true)
@@ -553,6 +635,7 @@ func _reset() -> void:
 	appearance_time = 0.0
 	model.reset()
 	handles.reset()
+	handles.handles.assign(arm_mapping.handle_poses)
 	pilot.reset()
 	pilot_status = {"owners":["",""]}
 	adapter.recenter()
@@ -574,6 +657,9 @@ func _change_scenario() -> void:
 	message = "%s / %s. Reset and paused for a repeatable comparison." % [MODE_NAMES[mode],"fixed" if fixed_opponent else "free"]
 
 func _begin_replay() -> void:
+	if arm_mapping.calibration_mode:
+		arm_mapping.cancel_calibration()
+		_release_arm_controls()
 	if not recorder.begin_replay():
 		message = "No clip yet — resume and make an exchange first."
 		return
@@ -601,6 +687,7 @@ func _leave_replay() -> void:
 	paused = true
 	_flush_delay()
 	handles.reset()
+	handles.handles.assign(arm_mapping.handle_poses)
 	pilot.reset()
 	pilot_status = {"owners":["",""]}
 	message = "Returned to live, paused. Resume and regrab handles."
@@ -660,6 +747,13 @@ func load_replay_file(path: String) -> Error:
 	for frame in candidate._clip:
 		var state: Dictionary = frame.state
 		if state.has("appearance") and (not state.appearance is Dictionary or not view.valid_appearance(state.appearance)): return ERR_INVALID_DATA
+		if state.has("cockpit_error"):
+			if not state.cockpit_error is Dictionary: return ERR_INVALID_DATA
+			for field in ["actual","desired"]:
+				var poses = state.cockpit_error.get(field)
+				if not poses is Array or poses.size()!=2: return ERR_INVALID_DATA
+				for pose in poses:
+					if not pose is Transform3D or not pose.is_finite() or absf(pose.basis.determinant())<.00001: return ERR_INVALID_DATA
 		if not state.get("cockpit") is Transform3D or not state.get("visuals") is Array or not state.get("rigs") is Array or state.rigs.size()!=2 or state.visuals.size()!=expected_visuals: return ERR_INVALID_DATA
 		for pose in state.visuals:
 			if not pose is Transform3D: return ERR_INVALID_DATA
@@ -695,10 +789,14 @@ func _input(event: InputEvent) -> void:
 		KEY_C: if not recorder.replaying: _action(5)
 		KEY_K: if not recorder.replaying: _cycle_bracing()
 		KEY_F2:
-			if not recorder.replaying:
+			if not recorder.replaying and not arm_mapping.calibration_mode:
 				tuning_page = not tuning_page
 				slider_capture = [-1,-1]
 				_update_display()
+		KEY_F3:
+			if not recorder.replaying:
+				if arm_mapping.calibration_mode: _finish_arm_calibration()
+				else: _begin_arm_calibration()
 		KEY_F5: _save_replay()
 		KEY_P: if recorder.replaying: recorder.toggle_playing()
 		KEY_BRACKETLEFT: if recorder.replaying: recorder.scrub(recorder.cursor-1.0)
@@ -733,7 +831,7 @@ func _process(dt: float) -> void:
 	max_frame_ms = maxf(max_frame_ms,dt*1000)
 	frame_total += dt
 	if "--capture" in OS.get_cmdline_user_args() and frames==360 and DisplayServer.get_name()!="headless":
-		get_viewport().get_texture().get_image().save_png("res://artifacts/melee-tuning.png" if "--capture-tuning" in OS.get_cmdline_user_args() else "res://artifacts/melee-cockpit.png")
+		get_viewport().get_texture().get_image().save_png("res://artifacts/melee-calibration.png" if "--capture-calibration" in OS.get_cmdline_user_args() else ("res://artifacts/melee-tuning.png" if "--capture-tuning" in OS.get_cmdline_user_args() else "res://artifacts/melee-cockpit.png"))
 	if "--capture" in OS.get_cmdline_user_args() and frames==400:
 		_begin_replay()
 		if recorder.replaying:

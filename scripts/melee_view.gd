@@ -5,6 +5,8 @@ const RobotRig = preload("res://scripts/robot_rig.gd")
 const Sword = preload("res://scripts/weapon_switch.gd")
 const HeatPaint = preload("res://scripts/melee_heat_paint.gd")
 var heat_painters: Dictionary = {}
+var armor_leaf_indices: Array[int] = []
+var geometry_query_view: Node3D
 const METAL_SHADER = preload("res://shaders/melee_metal.gdshader")
 const OUTLINE_SHADER = preload("res://shaders/melee_outline.gdshader")
 var heat_marks: Dictionary = {}
@@ -22,7 +24,7 @@ var sword_visuals: Array[Node3D] = []
 var puppet_leaves: Array[MeshInstance3D] = []
 var puppet: Node3D
 
-func setup() -> void:
+func setup(geometry_only := false) -> void:
 	if not suits.is_empty(): return
 	for i in 2:
 		var suit := Node3D.new()
@@ -63,8 +65,11 @@ func setup() -> void:
 					material.albedo_color = Color("b76b45") if material.albedo_color.v > .3 else Color("613d36")
 					mesh.material_override = material
 
-	for leaf in leaves: rest_leaf_transforms.append(leaf.transform)
-	_setup_metal()
+	for i in leaves.size():
+		rest_leaf_transforms.append(leaves[i].transform)
+		var material := leaves[i].material_override as StandardMaterial3D
+		if material and not material.emission_enabled: armor_leaf_indices.append(i)
+	if not geometry_only: _setup_metal()
 
 func _collect_meshes(node: Node) -> void:
 	_find_meshes(node,leaves)
@@ -116,6 +121,11 @@ func _label(text: String, at: Vector3, color: Color) -> void:
 	label.position = at
 
 func update_snapshot(snapshot: Dictionary, _dt: float) -> void:
+	_update_geometry(snapshot)
+	_update_appearance(snapshot,_dt)
+	_update_puppet()
+
+func _update_geometry(snapshot: Dictionary) -> void:
 	var rigs: Array = snapshot.get("rigs",[])
 	if rigs.size() < 2: return
 	# Replay may hide arbitrary leaves. Restore baseline, then let the visual
@@ -134,8 +144,6 @@ func update_snapshot(snapshot: Dictionary, _dt: float) -> void:
 		robots[i].reset()
 		robots[i].update_pose(0.0,Vector3.ZERO,Vector3.ZERO,equipment[i],Basis.IDENTITY)
 		_set_blade_fraction(i,float(rigs[i].get("blade_fraction",1.0)))
-	_update_appearance(snapshot,_dt)
-	_update_puppet()
 
 ## Stable layout: two suit-root world frames followed by all mesh world frames.
 ## A zero basis marks a hidden leaf, preserving visibility during replay without
@@ -219,7 +227,7 @@ func _update_appearance(snapshot: Dictionary, dt: float) -> void:
 	for index in heat_marks.keys():
 		var retained: Array = []
 		for mark in heat_marks[index]:
-			mark.w = maxf(0,mark.w-maxf(dt,0)*.22)
+			mark.w *= exp(-maxf(dt,0)*.4)
 			if mark.w > .001: retained.append(mark)
 		heat_marks[index] = retained
 	for i in 2:
@@ -234,20 +242,22 @@ func _update_appearance(snapshot: Dictionary, dt: float) -> void:
 		if rig_index < 0 or rig_index >= 2: continue
 		var part: String = contact.get("target_part","")
 		var target: MeshInstance3D
-		if part == "torso": target = robots[rig_index].chest
+		if contact.has("target_leaf") and metal_materials.has(int(contact.target_leaf)):
+			target = leaves[int(contact.target_leaf)]
+		elif part == "torso": target = robots[rig_index].chest
 		elif part == "shield": target = equipment[rig_index][0].get_child(0)
 		else: continue
 		var index := leaves.find(target)
-		var local: Vector3 = target.to_local(contact.position)
+		var local: Vector3 = contact.get("target_mesh_local",target.to_local(contact.position))
+		local = HeatPaint.cell_position(local,target.get_aabb().size*.5)
 		var marks: Array = heat_marks.get(index,[])
 		var merged := false
 		for m in marks.size():
-			if Vector3(marks[m].x,marks[m].y,marks[m].z).distance_to(local) < .45:
+			if Vector3(marks[m].x,marks[m].y,marks[m].z).is_equal_approx(local):
 				marks[m].w = minf(1,marks[m].w+dt*2.5)
 				merged = true
 				break
 		if not merged:
-			if marks.size() >= 8: marks.pop_front()
 			marks.append(Vector4(local.x,local.y,local.z,minf(1,dt*2.5)))
 		heat_marks[index] = marks
 	_refresh_materials()
@@ -295,7 +305,7 @@ func reset_appearance() -> void:
 func valid_appearance(appearance: Dictionary) -> bool:
 	var marks = appearance.get("heat_marks",[])
 	var efforts = appearance.get("arm_efforts",[[0.0,0.0],[0.0,0.0]])
-	if not marks is Array or marks.size()>leaves.size()*8: return false
+	if not marks is Array or marks.size()>leaves.size()*HeatPaint.MAX_CELLS: return false
 	if not efforts is Array or efforts.size()!=2: return false
 	for pair in efforts:
 		if not pair is Array or pair.size()!=2: return false
@@ -311,7 +321,7 @@ func valid_appearance(appearance: Dictionary) -> bool:
 		if not position is Vector3 or not position.is_finite(): return false
 		if not (heat is float or heat is int) or not is_finite(float(heat)) or heat<0 or heat>1: return false
 		counts[index] = int(counts.get(index,0))+1
-		if counts[index]>8: return false
+		if counts[index]>HeatPaint.MAX_CELLS: return false
 	return true
 
 ## Beam-shell meshes terminate at the first armor entry. The solver/query blade
@@ -326,3 +336,25 @@ func _set_blade_fraction(rig_index: int, fraction: float) -> void:
 		mesh.visible = length>.001
 		mesh.position = Vector3(0,base+length*.5,-.15)
 		mesh.scale = Vector3(1,maxf(.0001,length/full),1)
+
+## Authoritative armor geometry is independently resolved from server poses.
+## Calling this never moves the displayed/delayed rig and does not paint heat.
+func get_armor_surfaces(snapshot: Dictionary) -> Array[Dictionary]:
+	if not is_instance_valid(geometry_query_view):
+		geometry_query_view = get_script().new()
+		geometry_query_view.name = "AuthoritativeArmorGeometry"
+		add_child(geometry_query_view)
+		geometry_query_view.setup(true)
+		geometry_query_view.visible = false
+	geometry_query_view._update_geometry(snapshot)
+	var result: Array[Dictionary] = []
+	for index in geometry_query_view.armor_leaf_indices:
+		var leaf: MeshInstance3D = geometry_query_view.leaves[index]
+		if not leaf.visible: continue
+		var rig_index := 0 if geometry_query_view.suits[0].is_ancestor_of(leaf) else 1
+		if rig_index==1 and not bool(snapshot.get("opponent_visible",true)): continue
+		var part := "armor"
+		if leaf==geometry_query_view.robots[rig_index].chest: part = "torso"
+		elif geometry_query_view.equipment[rig_index][0].is_ancestor_of(leaf): part = "shield"
+		result.append({"target_rig":rig_index,"target_part":part,"target_leaf":index,"transform":leaf.global_transform,"size":leaf.get_aabb().size})
+	return result

@@ -12,6 +12,8 @@ const LAYER := 16
 const BEAM_LAYER := 32
 const TORSO_SIZE := Vector3(4.8, 4.2, 2.5)
 const FIXTURE_SIZE := Vector3(7, 10, .6)
+var armor_provider: Callable
+
 var rigs: Array[Dictionary] = []
 var fixture: StaticBody3D
 var opponent_fixed := true
@@ -353,27 +355,34 @@ func query_beam_contacts() -> Array[Dictionary]:
 	# Query the entire authored beam every time, independently of its visually
 	# shortened end. This is centerline/armor overlap, not a damage/impact solver.
 	var contacts: Array[Dictionary] = []
+	var armor: Array = []
+	if armor_provider.is_valid():
+		var pose_rigs: Array = []
+		for rig in rigs:
+			pose_rigs.append({"body":rig.torso.global_transform,"grips":[rig.weapons[0].global_transform,rig.weapons[1].global_transform]})
+		armor = armor_provider.call({"rigs":pose_rigs,"opponent_visible":not fixture_enabled})
+	else:
+		for target_rig in rigs.size():
+			armor.append({"target_rig":target_rig,"target_part":"torso","transform":rigs[target_rig].torso.global_transform,"size":TORSO_SIZE})
+			armor.append({"target_rig":target_rig,"target_part":"shield","transform":rigs[target_rig].weapons[0].global_transform,"size":SHIELD_SIZE})
+	if fixture_enabled: armor.append({"target_rig":-1,"target_part":"fixture","transform":fixture.global_transform,"size":FIXTURE_SIZE})
 	for saber_rig in rigs.size():
 		var sword: RigidBody3D = rigs[saber_rig].weapons[1]
 		var start := sword.global_transform * BLADE_BASE
 		var end := sword.global_transform * BLADE_TIP
-		var candidates: Array[Dictionary] = []
-		for target_rig in rigs.size():
-			# Match the rig's physical self-collision exclusions.
-			if target_rig == saber_rig: continue
-			candidates.append({"body": rigs[target_rig].torso, "size": TORSO_SIZE})
-			candidates.append({"body": rigs[target_rig].weapons[0], "size": SHIELD_SIZE})
-		if fixture_enabled: candidates.append({"body": fixture, "size": FIXTURE_SIZE})
 		var closest: Dictionary = {}
-		for candidate in candidates:
-			var body: CollisionObject3D = candidate.body
-			var hit := segment_box_entry(start, end, body.global_transform, candidate.size)
+		for candidate in armor:
+			if int(candidate.target_rig)==saber_rig: continue
+			var hit := segment_box_entry(start,end,candidate.transform,candidate.size)
 			if hit.is_empty(): continue
 			if not closest.is_empty() and hit.blade_fraction >= closest.blade_fraction: continue
 			hit["saber_rig"] = saber_rig
 			hit["saber_hand"] = 1
-			hit["target_rig"] = int(body.get_meta("rig", -1))
-			hit["target_part"] = str(body.get_meta("part", "other"))
+			hit["target_rig"] = int(candidate.target_rig)
+			hit["target_part"] = str(candidate.target_part)
+			if candidate.has("target_leaf"):
+				hit["target_leaf"] = int(candidate.target_leaf)
+				hit["target_mesh_local"] = hit.target_local_position
 			closest = hit
 		if not closest.is_empty(): contacts.append(closest)
 	return contacts
@@ -406,7 +415,7 @@ static func segment_box_entry(start: Vector3, end: Vector3, frame: Transform3D, 
 	# If the emitter is already inside armor, absorption starts at its base.
 	# Do not jump to the exit surface or draw the beam through that material.
 	var position := start.lerp(end, near)
-	return {"position": position, "normal": frame.basis * entry_normal, "target_local_position": local_start.lerp(local_end, near), "distance": start.distance_to(position), "blade_fraction": near, "exit_fraction": far, "starts_inside": starts_inside}
+	return {"position": position, "normal": (frame.basis.inverse().transposed() * entry_normal).normalized(), "target_local_position": local_start.lerp(local_end, near), "distance": start.distance_to(position), "blade_fraction": near, "exit_fraction": far, "starts_inside": starts_inside}
 
 func _update_beam_shapes(contacts: Array[Dictionary]) -> void:
 	# Only the unabsorbed field can resist a second blade. Keep the full authored
