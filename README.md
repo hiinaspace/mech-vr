@@ -1,29 +1,76 @@
-# Mech VR — greybox
+# Mech VR — greybox demo
 
-## Melee experiment
+This is an editable Godot source project for a seated PCVR greybox: a small
+flyaround/ranged cockpit experiment and a separate melee contact lab. It is
+not a finished game, SDK, multiplayer demo, or distributable build. Open the
+repository in Godot 4.7.2, or use the launch scripts below.
 
-`./scripts/run-melee.sh --xr` launches the new contact lab; omit `--xr` for desktop.
-Finite-force rigid-body sword/shield contact, fixed/free opponents, bracing
-comparisons, live force/response/slash/RTT sliders, six-axis pilot controls,
-painted contact glow, a paired puppet view and 20-second replay with annotations.
-Use **F2** or the lower cockpit panel to tune live.
-See the [melee test card](docs/melee-headset-test.md),
-[verification](docs/melee-verification.md) and
-[design research](docs/melee-greybox-research.md).
+## Try it
+
+Run commands from the repository root:
+
+```sh
+# Flyaround / ranged cockpit scene (main.tscn)
+./scripts/run.sh                 # desktop, starts paused
+./scripts/run.sh --xr             # native OpenXR, starts paused
+
+# Melee testing / contact lab (melee.tscn)
+./scripts/run-melee.sh            # desktop
+./scripts/run-melee.sh --xr       # native OpenXR
+
+# Automated source checks and isolated, non-headset OpenXR smoke
+./scripts/test.sh
+./scripts/run-monado-qwerty.sh --smoke
+./scripts/run-monado-qwerty.sh --melee --smoke
+```
+
+The scripts expect `godot4`; native XR additionally needs a working OpenXR
+runtime and tracked controllers. The Monado commands create a temporary
+private runtime and null compositor; they do not use or restart a normal VR
+session. If a rendered command has no display environment, prefix it with
+`DISPLAY=:0 WAYLAND_DISPLAY=wayland-1` on this machine. The same project can
+also be imported in the Godot editor and opened via `main.tscn` or `melee.tscn`.
+
+### Flyaround controls
+
+The desktop adapter is useful for trying the cockpit loop without a headset:
+
+| Action | Desktop | XR |
+| --- | --- | --- |
+| Translate | `WASD`, `Q/E` | Left stick / cockpit stick |
+| Yaw and vertical/pitch mode | Arrow keys, `Tab` switches mode | Right stick; face button switches Y |
+| Boost / brake | `Shift` / `Space` | Left trigger / brake button |
+| Grab left/right arm | Hold `G` / `H` | Grip the matching cockpit handle |
+| Fire / UI click | Left mouse | Right trigger while that hand owns UI |
+| Pause / reset | `Esc` / `R` | Stick click / panel reset |
+| Pose diagnostics | `1/2/3`, right-mouse drag | Tracked head/hand poses |
+
+The scene starts paused. Use the cockpit panel for arm ownership and live
+tuning. The [M0a headset test](docs/m0a-headset-test.md) and [verification and
+limits](docs/verification.md) describe the intended checks and what has not
+been validated.
+
+### Melee testing controls
+
+The melee lab starts paused. Grip the cyan center stick or the arm handles to
+fly and command the robot arms; release a grip to operate the panel. On
+desktop, `G/H` hold the left/right grips, `Shift` is the left trigger, `Space`
+brakes, and the mouse aims (`LMB` fires, `RMB` rotates the selected pose).
+Use `F2` for force/speed/lag tuning, `F3` for arm calibration, `M` to cycle
+guard/repeated-cut/slab scenarios, `F` to toggle fixed/free opponent, `T` for
+the 20-second replay, and `F5` to export a replay with notes. The panel shows
+the current controls in XR.
+
+Start with the [melee headset test card](docs/melee-headset-test.md), then see
+[melee verification](docs/melee-verification.md) and the
+[melee greybox research](docs/melee-greybox-research.md). Those documents
+separate automated/desktop evidence from the remaining physical headset gate.
 
 ## Original ranged MVP
 
 Runnable seated PCVR cockpit experiment in Godot 4.7.2, Mobile / Vulkan.
 Preset A only: cockpit-relative flight, independent tracked rifle/shield,
 finite incoming bolts, explicit arm/UI handoff, and a live cadence MFD.
-
-```sh
-# From this checkout, using the installed Godot engine:
-./scripts/run.sh                 # desktop, starts paused
-./scripts/run.sh --xr            # native OpenXR, starts paused
-./scripts/test.sh                # legacy and melee checks
-./scripts/run-monado-qwerty.sh --smoke  # private simulated runtime
-```
 
 The task process on sayu lacked display variables. When launching from that
 context, prefix rendered commands with `DISPLAY=:0 WAYLAND_DISPLAY=wayland-1`.
@@ -37,10 +84,10 @@ targets have no health/destruction state. A HUD cue identifies the dock and weap
 The art pass adds a CC0 starfield, exterior cylinder backdrop, warm sunlight,
 HDR glow, seven verniers, local exhaust lighting and a short world-space wake.
 
-**Ranged MVP accepted; melee contact lab now ready for its first headset test.**
-The [headset test card](docs/m0a-headset-test.md) remains available for further trials.
-Repository visibility is private; the project license is undecided. Third-party
-asset terms are recorded separately in [THIRD_PARTY.md](THIRD_PARTY.md).
+**Ranged MVP accepted; melee contact lab is ready for its first headset test.**
+No subjective headset result is claimed here. Third-party asset terms are
+recorded separately in [THIRD_PARTY.md](THIRD_PARTY.md), and this source repo
+is released under the [WTFPL](LICENSE).
 Initial user feedback and the reattachment tradeoff are in
 [playtest notes](docs/playtest-notes.md).
 Read [verification and limits](docs/verification.md) for actual evidence. No
@@ -83,7 +130,9 @@ Run/issue logs and screenshots are in ignored `artifacts/`; no media or caches
 are committed. See [provenance](THIRD_PARTY.md) for permitted reference reuse.
 
 The approved [MVP plan](docs/mvp-plan.md) and
-[implementation brief](docs/IMPLEMENTATION_BRIEF.md) define the scope. B/C,
-full melee physics, torque simulation, networking, tutorial and publication await later gates.
+[implementation brief](docs/IMPLEMENTATION_BRIEF.md) define the scope. The
+[playtest notes](docs/playtest-notes.md) record design context; B/C, full melee
+physics, torque simulation, networking, tutorial and a production build remain
+out of scope for this greybox publication.
 The subsequent user-authorized experiments add parked controls, shared posture,
 visual art, six-axis rate flight, throttle, traveling shots, sword hit feedback and scope.
